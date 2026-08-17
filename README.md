@@ -86,17 +86,47 @@ Descarga tu modelo de preferencia gguf, en este caso utilizamos `LFM2.5-1.2B-Ins
 euler-backend/.models/LFM2.5-1.2B-Instruct-Q4_K_M.gguf
 ```
 
-### Paso 4 — Descargar los modelos MOSS-TTS-Nano
+### Paso 4 — Clonar MOSS-TTS-Nano y descargar modelos
 
-Clona o descarga los modelos ONNX de [MOSS-TTS-Nano](https://github.com/OpenMOSS/MOSS-TTS-Nano) en:
+El motor TTS usa [MOSS-TTS-Nano](https://github.com/OpenMOSS/MOSS-TTS-Nano). Primero clona el repositorio:
 
+```bash
+cd euler-backend
+git clone https://github.com/OpenMOSS/MOSS-TTS-Nano.git
+cd MOSS-TTS-Nano
 ```
-euler-backend/MOSS-TTS-Nano/models/
+
+Luego descarga los modelos ONNX. Tienes dos opciones:
+
+**Opción 1 — Descarga automática (recomendada):**
+
+Ejecuta el script de inferencia ONNX y los modelos se descargan automáticamente la primera vez:
+
+```bash
+python infer_onnx.py \
+  --prompt-audio-path assets/audio/zh_1.wav \
+  --text "Welcome to the ONNX Runtime CPU demo."
 ```
 
-El directorio debe contener:
-- `MOSS-TTS-Nano-100M-ONNX/` — Modelo TTS principal
-- `MOSS-Audio-Tokenizer-Nano-ONNX/` — Tokenizador de audio
+Los modelos se descargan automáticamente a:
+- `models/MOSS-TTS-Nano-100M-ONNX/`
+- `models/MOSS-Audio-Tokenizer-Nano-ONNX/`
+
+**Opción 2 — Descarga manual con huggingface-cli:**
+
+```bash
+pip install huggingface_hub
+
+huggingface-cli download OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX \
+  --local-dir models/MOSS-TTS-Nano-100M-ONNX
+
+huggingface-cli download OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX \
+  --local-dir models/MOSS-Audio-Tokenizer-Nano-ONNX
+```
+
+**Repositorios de Hugging Face:**
+- [MOSS-TTS-Nano-100M-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX)
+- [MOSS-Audio-Tokenizer-Nano-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX)
 
 ### Paso 5 — Iniciar llama.cpp (servidor LLM)
 
