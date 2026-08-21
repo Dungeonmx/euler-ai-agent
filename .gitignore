@@ -216,3 +216,42 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ============================================
+# Backend (euler-backend)
+# ============================================
+
+# Python virtual environments
+euler-backend/.venv/
+euler-backend/venv/
+
+# Python packages
+euler-backend/*.egg-info/
+
+# LLM models
+euler-backend/.models/
+
+# MOSS-TTS-Nano ONNX models
+euler-backend/MOSS-TTS-Nano/models/
+
+# Generated audio files
+euler-backend/audios/generated/
+
+# ============================================
+# Frontend (euler-frontend)
+# ============================================
+
+# Node modules
+euler-frontend/node_modules/
+
+# Build output
+euler-frontend/dist/
+
+# Lock files
+euler-frontend/bun.lock
+euler-frontend/pnpm-lock.yaml
+
+# Agentes
+AGENTS.md
+.agents/
+skills-lock.json
