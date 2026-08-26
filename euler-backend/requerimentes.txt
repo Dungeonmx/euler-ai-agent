@@ -10,3 +10,4 @@ transformers
 sentencepiece
 soundfile
 numpy
+python-dotenv

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -9,16 +11,19 @@ from langchain_openai import ChatOpenAI
 
 from tts import synthesize_text
 
+load_dotenv()
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
 
 app = FastAPI(title="Euler AI Agent API", version="1.0.0")
 
 llm = ChatOpenAI(
-    model="local-model",
-    temperature=1,
-    base_url="http://localhost:8010/v1",
-    api_key="nono",
+    model=os.getenv("LLM_MODEL"),
+    temperature=float(os.getenv("LLM_TEMPERATURE")),
+    base_url=os.getenv("LLM_BASE_URL"),
+    api_key=os.getenv("LLM_API_KEY"),
+    default_headers={"User-Agent": "python-httpx/0.28.1"},
 )
 
 
