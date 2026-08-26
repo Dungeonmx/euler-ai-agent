@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-const DEFAULT_SYSTEM_PROMPT = "eres un ayudante de la unlpam...";
-
 export const Chat = ({ onPlayAudio }) => {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -29,9 +26,7 @@ export const Chat = ({ onPlayAudio }) => {
       const response = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "system", content: systemPrompt }, ...newMessages],
-        }),
+        body: JSON.stringify({ messages: newMessages }),
       });
 
       const data = await response.json();
@@ -65,16 +60,6 @@ export const Chat = ({ onPlayAudio }) => {
 
   return (
     <div className="pointer-events-auto flex flex-col gap-3">
-
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-bold text-left text-gray-900">System Prompt</label>
-        <textarea
-          className="w-full p-2 rounded bg-gray-100 text-gray-900 border border-gray-300 text-sm resize-none"
-          rows={2}
-          value={systemPrompt}
-          onChange={(e) => setSystemPrompt(e.target.value)}
-        />
-      </div>
 
       <div className="flex justify-end">
         <button

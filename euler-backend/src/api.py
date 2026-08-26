@@ -13,6 +13,7 @@ from tts import synthesize_text
 
 load_dotenv()
 
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
 
@@ -50,7 +51,7 @@ async def startup_event():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    langchain_messages = [(msg.role, msg.content) for msg in request.messages]
+    langchain_messages = [("system", SYSTEM_PROMPT), *[(msg.role, msg.content) for msg in request.messages]]
 
     result = llm.invoke(input=langchain_messages)
     assistant_response = result.content
