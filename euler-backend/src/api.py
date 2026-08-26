@@ -8,8 +8,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
+from langchain.agents import create_agent
 
 from tts import synthesize_text
+from tools import get_recent_news
 
 load_dotenv()
 
@@ -25,6 +27,14 @@ llm = ChatOpenAI(
     base_url=os.getenv("LLM_BASE_URL"),
     api_key=os.getenv("LLM_API_KEY"),
     default_headers={"User-Agent": "python-httpx/0.28.1"},
+)
+
+tools = [get_recent_news]
+
+agent_executor = create_agent(
+    llm,
+    tools=tools,
+    system_prompt=SYSTEM_PROMPT,
 )
 
 
@@ -51,10 +61,20 @@ async def startup_event():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    langchain_messages = [("system", SYSTEM_PROMPT), *[(msg.role, msg.content) for msg in request.messages]]
+    from langchain_core.messages import HumanMessage, SystemMessage
 
-    result = llm.invoke(input=langchain_messages)
-    assistant_response = result.content
+    messages = [SystemMessage(content=SYSTEM_PROMPT)]
+    for msg in request.messages:
+        if msg.role == "user":
+            messages.append(HumanMessage(content=msg.content))
+        elif msg.role == "assistant":
+            from langchain_core.messages import AIMessage
+            messages.append(AIMessage(content=msg.content))
+
+    result = agent_executor.invoke({"messages": messages})
+
+    output_messages = result["messages"]
+    assistant_response = output_messages[-1].content
 
     all_messages = list(request.messages) + [
         Message(role="assistant", content=assistant_response)

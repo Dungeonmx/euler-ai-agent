@@ -11,3 +11,5 @@ sentencepiece
 soundfile
 numpy
 python-dotenv
+requests
+beautifulsoup4
