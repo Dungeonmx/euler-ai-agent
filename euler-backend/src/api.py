@@ -4,13 +4,13 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 
-from tts import synthesize_text
+from tts import synthesize_text, generate_audio_filename
 from tools import get_recent_news
 
 load_dotenv()
@@ -52,20 +52,13 @@ class ChatResponse(BaseModel):
     audio_url: str
 
 
-@app.on_event("startup")
-async def startup_event():
-    GENERATED_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    from tts import get_tts_runtime
-    get_tts_runtime()
-
-
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
     from langchain_core.messages import HumanMessage, SystemMessage
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
     for msg in request.messages:
-        if msg.role == "user":
+        if msg.role in ("user", "human"):
             messages.append(HumanMessage(content=msg.content))
         elif msg.role == "assistant":
             from langchain_core.messages import AIMessage
@@ -80,8 +73,10 @@ async def chat(request: ChatRequest):
         Message(role="assistant", content=assistant_response)
     ]
 
-    tts_result = synthesize_text(assistant_response)
-    audio_filename = tts_result["filename"]
+    response_format = os.environ.get("TTS_RESPONSE_FORMAT", "wav")
+    audio_filename = generate_audio_filename(response_format)
+    output_path = GENERATED_AUDIO_DIR / audio_filename
+    background_tasks.add_task(synthesize_text, assistant_response, output_path)
 
     return ChatResponse(
         messages=all_messages,

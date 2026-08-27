@@ -2,14 +2,6 @@ langchain
 langchain-openai
 fastapi
 uvicorn[standard]
-onnxruntime
-torch
-torchaudio
-torchcodec
-transformers
-sentencepiece
-soundfile
-numpy
 python-dotenv
 requests
 beautifulsoup4

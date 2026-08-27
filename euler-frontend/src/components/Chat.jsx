@@ -16,7 +16,7 @@ export const Chat = ({ onPlayAudio }) => {
     const text = inputValue.trim();
     if (!text || isLoading) return;
 
-    const userMessage = { role: "human", content: text };
+    const userMessage = { role: "user", content: text };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInputValue("");
@@ -34,7 +34,27 @@ export const Chat = ({ onPlayAudio }) => {
       setMessages((prev) => [...prev, assistantMessage]);
 
       if (data.audio_url) {
-        onPlayAudio(data.audio_url);
+        let audioReady = false;
+        let attempts = 0;
+        const maxAttempts = 240;
+        const pollInterval = setInterval(async () => {
+          if (audioReady || attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            return;
+          }
+          try {
+            const audioRes = await fetch(data.audio_url);
+            if (audioRes.ok) {
+              audioReady = true;
+              clearInterval(pollInterval);
+              onPlayAudio(data.audio_url);
+            } else {
+              attempts++;
+            }
+          } catch {
+            attempts++;
+          }
+        }, 500);
       }
     } catch (error) {
       console.error("Chat error:", error);
