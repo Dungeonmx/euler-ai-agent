@@ -7,7 +7,6 @@ import { useAnimations, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useRef, useState } from "react";
 
-import { useControls } from "leva";
 import * as THREE from "three";
 import { VISEMES } from "wawa-lipsync";
 import { lipsyncManager } from "../App";
@@ -18,13 +17,6 @@ export function Avatar(props) {
   const { nodes, materials, scene } = useGLTF(
     "/models/64f1a714fe61576b46f27ca2.glb"
   );
-
-  const { smoothMovements } = useControls("Avatar", {
-    smoothMovements: {
-      value: true,
-      label: "Smooth Movements",
-    },
-  });
 
   const { animations } = useGLTF("/models/animations.glb");
 
@@ -86,7 +78,7 @@ export function Avatar(props) {
     lerpMorphTarget(
       viseme,
       1,
-      smoothMovements ? (state === "vowel" ? 0.2 : 0.4) : 1
+      state === "vowel" ? 0.2 : 0.4
     );
 
     Object.values(VISEMES).forEach((value) => {
@@ -96,7 +88,7 @@ export function Avatar(props) {
       lerpMorphTarget(
         value,
         0,
-        smoothMovements ? (state === "vowel" ? 0.1 : 0.2) : 1
+        state === "vowel" ? 0.1 : 0.2
       );
     });
   });

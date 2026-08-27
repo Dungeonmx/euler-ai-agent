@@ -26,7 +26,9 @@ export const Chat = ({ onPlayAudio }) => {
       const response = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({
+          messages: [...newMessages],
+        }),
       });
 
       const data = await response.json();
@@ -80,7 +82,6 @@ export const Chat = ({ onPlayAudio }) => {
 
   return (
     <div className="pointer-events-auto flex flex-col gap-3">
-
       <div className="flex justify-end">
         <button
           className="px-3 py-1.5 text-white bg-red-500 hover:bg-red-600 cursor-pointer rounded text-sm"
@@ -103,12 +104,12 @@ export const Chat = ({ onPlayAudio }) => {
           <div
             key={index}
             className={`flex ${
-              msg.role === "human" ? "justify-end" : "justify-start"
+              msg.role === "user" ? "justify-end" : "justify-start"
             }`}
           >
             <div
               className={`rounded-lg px-3 py-2 max-w-80 text-sm ${
-                msg.role === "human"
+                msg.role === "user"
                   ? "bg-indigo-500 text-white"
                   : "bg-white text-gray-900 border border-gray-200"
               }`}
