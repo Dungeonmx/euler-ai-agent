@@ -81,13 +81,22 @@ mkdir -p audios/generated
 
 ### Paso 4 — Iniciar llama.cpp (servidor LLM) e iniciar qwen3tts.cpp (servidor TTS)
 
-```bash
-# Desde euler-backend/
-./start.sh
+Primero descarga los modelos en la carpeta `.models/`
+- https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/qwen-talker-1.7b-customvoice-Q4_K_M.gguf?download=true
+- https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/qwen-tokenizer-12hz-Q4_K_M.gguf?download=true
+- https://huggingface.co/viniciusianni/LFM2.5-1.2B-Instruct-Q4_K_M-GGUF/resolve/main/lfm2.5-1.2b-instruct-q4_k_m.gguf?download=true
 
-# O manualmente:
-docker compose -f docker-compose-cpu.yml up -d
-docker compose -f docker-compose-qwen3tts.yml up -d
+```bash
+mkdir .models && \
+curl -L -o .models/qwen-talker-1.7b-customvoice-Q4_K_M.gguf https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/qwen-talker-1.7b-customvoice-Q4_K_M.gguf?download=true && \
+curl -L -o .models/qwen-tokenizer-12hz-Q4_K_M.gguf https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/qwen-tokenizer-12hz-Q4_K_M.gguf?download=true && \
+curl -L -o .models/LFM2.5-1.2B-Instruct-Q4_K_M.gguf https://huggingface.co/viniciusianni/LFM2.5-1.2B-Instruct-Q4_K_M-GGUF/resolve/main/lfm2.5-1.2b-instruct-q4_k_m.gguf?download=true
+```
+
+Luego lanza los contenedores
+
+```bash
+docker compose -f docker-compose.yml up -d
 ```
 
 Esto inicia el servidor llama.cpp en `http://localhost:8010` y el servidor qwen3tts.cpp en `http://localhost:8019`.
