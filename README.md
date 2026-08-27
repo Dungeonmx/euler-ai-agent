@@ -73,15 +73,13 @@ source .venv/bin/activate
 pip install -r requerimentes.txt
 ```
 
-### Paso 3 — Descargar el modelo LLM
+### Paso 3 — Crear la carpeta donde se almacenaran los audios generados
 
-Descarga tu modelo de preferencia gguf, en este caso utilizamos `LFM2.5-1.2B-Instruct-Q4_K_M.gguf` y colócalo en:
-
-```
-euler-backend/.models/LFM2.5-1.2B-Instruct-Q4_K_M.gguf
+```bash
+mkdir -p audios/generated
 ```
 
-### Paso 4 — Iniciar llama.cpp (servidor LLM)
+### Paso 4 — Iniciar llama.cpp (servidor LLM) e iniciar qwen3tts.cpp (servidor TTS)
 
 ```bash
 # Desde euler-backend/
@@ -89,9 +87,10 @@ euler-backend/.models/LFM2.5-1.2B-Instruct-Q4_K_M.gguf
 
 # O manualmente:
 docker compose -f docker-compose-cpu.yml up -d
+docker compose -f docker-compose-qwen3tts.yml up -d
 ```
 
-Esto inicia el servidor llama.cpp en `http://localhost:8010`.
+Esto inicia el servidor llama.cpp en `http://localhost:8010` y el servidor qwen3tts.cpp en `http://localhost:8019`.
 
 Verifica que está corriendo:
 
@@ -243,5 +242,3 @@ curl -s -X POST http://localhost:8000/chat \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['audio_url'])" \
   | xargs -I {} curl -o respuesta.wav "http://localhost:8000/{}"
 ```
-
-
