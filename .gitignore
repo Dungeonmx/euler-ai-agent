@@ -231,9 +231,6 @@ euler-backend/*.egg-info/
 # LLM models
 euler-backend/.models/
 
-# MOSS-TTS-Nano ONNX models
-euler-backend/MOSS-TTS-Nano/models/
-
 # Generated audio files
 euler-backend/audios/generated/
 
