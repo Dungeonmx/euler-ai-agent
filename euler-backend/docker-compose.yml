@@ -1,0 +1,21 @@
+services:
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    environment:
+      - LLAMA_ARG_MODEL=/models/LFM2.5-1.2B-Instruct-Q4_K_M.gguf
+    ports:
+      - "8010:8080"
+    volumes:
+      - ./.models:/models
+    devices:
+      - /dev/dri:/dev/dri
+  qwentts:
+    image: ghcr.io/serveurpersocom/qwentts.cpp:cpu
+    ports:
+      - "8019:8080"
+    volumes:
+      - .models/:/models:ro
+    environment:
+      - MODEL_PATH=/models/qwen-talker-1.7b-customvoice-Q4_K_M.gguf
+      - CODEC_PATH=/models/qwen-tokenizer-12hz-Q4_K_M.gguf
+      - TTS_LANG=Spanish
