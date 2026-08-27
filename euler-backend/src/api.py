@@ -1,24 +1,40 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
+from langchain.agents import create_agent
 
-from tts import synthesize_text
+from tts import synthesize_text, generate_audio_filename
+from tools import get_recent_news
 
+load_dotenv()
+
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
 
 app = FastAPI(title="Euler AI Agent API", version="1.0.0")
 
 llm = ChatOpenAI(
-    model="local-model",
-    temperature=1,
-    base_url="http://localhost:8010/v1",
-    api_key="nono",
+    model=os.getenv("LLM_MODEL"),
+    temperature=float(os.getenv("LLM_TEMPERATURE")),
+    base_url=os.getenv("LLM_BASE_URL"),
+    api_key=os.getenv("LLM_API_KEY"),
+    default_headers={"User-Agent": "python-httpx/0.28.1"},
+)
+
+tools = [get_recent_news]
+
+agent_executor = create_agent(
+    llm,
+    tools=tools,
+    system_prompt=SYSTEM_PROMPT,
 )
 
 
@@ -36,26 +52,31 @@ class ChatResponse(BaseModel):
     audio_url: str
 
 
-@app.on_event("startup")
-async def startup_event():
-    GENERATED_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    from tts import get_tts_runtime
-    get_tts_runtime()
-
-
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    langchain_messages = [(msg.role, msg.content) for msg in request.messages]
+async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
+    from langchain_core.messages import HumanMessage, SystemMessage
 
-    result = llm.invoke(input=langchain_messages)
-    assistant_response = result.content
+    messages = [SystemMessage(content=SYSTEM_PROMPT)]
+    for msg in request.messages:
+        if msg.role in ("user", "human"):
+            messages.append(HumanMessage(content=msg.content))
+        elif msg.role == "assistant":
+            from langchain_core.messages import AIMessage
+            messages.append(AIMessage(content=msg.content))
+
+    result = agent_executor.invoke({"messages": messages})
+
+    output_messages = result["messages"]
+    assistant_response = output_messages[-1].content
 
     all_messages = list(request.messages) + [
         Message(role="assistant", content=assistant_response)
     ]
 
-    tts_result = synthesize_text(assistant_response)
-    audio_filename = tts_result["filename"]
+    response_format = os.environ.get("TTS_RESPONSE_FORMAT", "wav")
+    audio_filename = generate_audio_filename(response_format)
+    output_path = GENERATED_AUDIO_DIR / audio_filename
+    background_tasks.add_task(synthesize_text, assistant_response, output_path)
 
     return ChatResponse(
         messages=all_messages,
