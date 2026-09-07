@@ -2,7 +2,7 @@ import { CameraControls } from "@react-three/drei";
 import { useEffect, useRef } from "react";
 import { Avatar } from "./Avatar";
 
-export const Experience = () => {
+export const Experience = ({ audioUrl }) => {
   const controls = useRef();
 
   useEffect(() => {
@@ -16,7 +16,7 @@ export const Experience = () => {
       <directionalLight position={[1, 0.5, -3]} intensity={2} color="blue" />
       <directionalLight position={[-1, 0.5, -2]} intensity={2} color="red" />
       <directionalLight position={[1, 1, 3]} intensity={2} />
-      <Avatar />
+      <Avatar audioUrl={audioUrl} />
     </>
   );
 };

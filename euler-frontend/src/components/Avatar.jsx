@@ -64,6 +64,27 @@ export function Avatar(props) {
   const [winkLeft, setWinkLeft] = useState(false);
   const [winkRight, setWinkRight] = useState(false);
 
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    if (!props.audioUrl) return;
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+    }
+
+    const audio = new Audio(props.audioUrl);
+    audioRef.current = audio;
+    lipsyncManager.connectAudio(audio);
+    audio.play();
+
+    return () => {
+      audio.pause();
+      audio.src = "";
+    };
+  }, [props.audioUrl]);
+
   useFrame(() => {
     lerpMorphTarget("eyeBlinkLeft", blink || winkLeft ? 1 : 0, 0.5);
     lerpMorphTarget("eyeBlinkRight", blink || winkRight ? 1 : 0, 0.5);

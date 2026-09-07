@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-export const Chat = ({ onPlayAudio }) => {
+export const Chat = ({ audioUrl, onAudioUrl }) => {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -26,13 +26,7 @@ export const Chat = ({ onPlayAudio }) => {
       const response = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-<<<<<<< HEAD
         body: JSON.stringify({ messages: newMessages }),
-=======
-        body: JSON.stringify({
-          messages: [...newMessages],
-        }),
->>>>>>> origin/main
       });
 
       const data = await response.json();
@@ -40,7 +34,7 @@ export const Chat = ({ onPlayAudio }) => {
       setMessages((prev) => [...prev, assistantMessage]);
 
       if (data.audio_url) {
-        onPlayAudio(data.audio_url);
+        onAudioUrl(data.audio_url);
       }
     } catch (error) {
       console.error("Chat error:", error);
