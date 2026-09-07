@@ -16,7 +16,7 @@ export const Chat = ({ audioUrl, onAudioUrl }) => {
     const text = inputValue.trim();
     if (!text || isLoading) return;
 
-    const userMessage = { role: "human", content: text };
+    const userMessage = { role: "user", content: text };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInputValue("");

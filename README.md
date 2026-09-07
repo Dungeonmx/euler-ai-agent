@@ -5,7 +5,7 @@ Agente de IA con avatar 3D, voz natural y chat en tiempo real.
 ## Características
 
 - **Chat con LLM local** — Modelo LFM2.5-1.2B ejecutado con llama.cpp
-- **Text-to-Speech natural** — MOSS-TTS-Nano con clonación de voz
+- **Text-to-Speech natural** — Qwen3-TTS con API de inferencia
 - **Avatar 3D con lip-sync** — Three.js + wawa-lipsync en tiempo real
 - **Visualizador de audio** — Animación de ondas del audio generado
 
@@ -17,16 +17,11 @@ euler-ai-agent/
 │   ├── src/
 │   │   ├── main.py          # Punto de entrada (FastAPI + uvicorn)
 │   │   ├── api.py           # Endpoints: /chat, /audio/{filename}
-│   │   ├── tts.py           # Motor TTS con MOSS-TTS-Nano
+│   │   ├── tts.py           # Motor TTS (API Qwen3-TTS)
 │   │   └── v2g.py           # Voice to Gesture (Audio2Face)
-│   ├── MOSS-TTS-Nano/       # Motor TTS y modelos ONNX
-│   │   ├── models/          # Modelos descargados (ignorados en git)
-│   │   ├── onnx_tts_runtime.py
-│   │   └── ...
 │   ├── .models/             # Modelo LLM (ignorados en git)
 │   │   └── LFM2.5-1.2B-Instruct-Q4_K_M.gguf
 │   ├── audios/
-│   │   ├── referencia_neutra.wav   # Voz de referencia para TTS
 │   │   └── generated/              # Audios generados (ignorados en git)
 │   ├── animaicones/         # Animaciones USD generadas
 │   ├── docker-compose-cpu.yml  # llama.cpp container
@@ -86,49 +81,7 @@ Descarga tu modelo de preferencia gguf, en este caso utilizamos `LFM2.5-1.2B-Ins
 euler-backend/.models/LFM2.5-1.2B-Instruct-Q4_K_M.gguf
 ```
 
-### Paso 4 — Clonar MOSS-TTS-Nano y descargar modelos
-
-El motor TTS usa [MOSS-TTS-Nano](https://github.com/OpenMOSS/MOSS-TTS-Nano). Primero clona el repositorio:
-
-```bash
-cd euler-backend
-git clone https://github.com/OpenMOSS/MOSS-TTS-Nano.git
-cd MOSS-TTS-Nano
-```
-
-Luego descarga los modelos ONNX. Tienes dos opciones:
-
-**Opción 1 — Descarga automática (recomendada):**
-
-Ejecuta el script de inferencia ONNX y los modelos se descargan automáticamente la primera vez:
-
-```bash
-python infer_onnx.py \
-  --prompt-audio-path assets/audio/zh_1.wav \
-  --text "Welcome to the ONNX Runtime CPU demo."
-```
-
-Los modelos se descargan automáticamente a:
-- `models/MOSS-TTS-Nano-100M-ONNX/`
-- `models/MOSS-Audio-Tokenizer-Nano-ONNX/`
-
-**Opción 2 — Descarga manual con huggingface-cli:**
-
-```bash
-pip install huggingface_hub
-
-huggingface-cli download OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX \
-  --local-dir models/MOSS-TTS-Nano-100M-ONNX
-
-huggingface-cli download OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX \
-  --local-dir models/MOSS-Audio-Tokenizer-Nano-ONNX
-```
-
-**Repositorios de Hugging Face:**
-- [MOSS-TTS-Nano-100M-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX)
-- [MOSS-Audio-Tokenizer-Nano-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX)
-
-### Paso 5 — Iniciar llama.cpp (servidor LLM)
+### Paso 4 — Iniciar llama.cpp (servidor LLM)
 
 ```bash
 # Desde euler-backend/
@@ -146,7 +99,7 @@ Verifica que está corriendo:
 curl http://localhost:8010/health
 ```
 
-### Paso 6 — Iniciar el backend (API + TTS)
+### Paso 5 — Iniciar el backend (API + TTS)
 
 ```bash
 # Desde euler-backend/ (con el venv activado)
@@ -161,7 +114,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 La API estará disponible en `http://localhost:8000`.
 
-### Paso 7 — Configurar el frontend
+### Paso 6 — Configurar el frontend
 
 ```bash
 cd euler-frontend
@@ -173,7 +126,7 @@ bun install
 npm install
 ```
 
-### Paso 8 — Iniciar el frontend
+### Paso 7 — Iniciar el frontend
 
 ```bash
 # Con Bun:
