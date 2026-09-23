@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import json
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -68,6 +68,8 @@ async def chat_stream(request: ChatRequest):
         config = {"configurable": {"thread_id": str(uuid7())}}
 
         try:
+            # importante el async en el form y el uso del metodo astream para un correcto..
+            # funcionamiento.
             async for chunk in agent_executor.astream(
                 {"messages": messages},
                 config=config,

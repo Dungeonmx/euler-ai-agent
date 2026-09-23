@@ -63,14 +63,12 @@ export const Chat = ({ onPlayAudio }) => {
 
                 for (const line of lines) {
                     if (line.startsWith("event:")) {
-                        currentEvent = line.slice(6).trim();
+                        currentEvent = line.slice(7).trim();
                     } else if (line.startsWith("data:")) {
-                        currentData = line.slice(5).trim();
+                      currentData = line.slice(6).trimEnd();
+                      console.log(currentData);
                     } else if (line === "") {
                         if (currentEvent === "text" && currentData) {
-                            if (accumulatedText && !currentData.startsWith(' ')) {
-                                accumulatedText += ' ';
-                            }
                             accumulatedText += currentData;
                             setMessages((prev) => {
                                 const updated = [...prev];
@@ -99,14 +97,12 @@ export const Chat = ({ onPlayAudio }) => {
 
                 for (const line of remainingLines) {
                     if (line.startsWith("event:")) {
-                        currentEvent = line.slice(6).trim();
+                        currentEvent = line.slice(7).trim();
                     } else if (line.startsWith("data:")) {
-                        currentData = line.slice(5).trim();
+                      currentData = line.slice(6);
+                      console.log(currentData);
                     } else if (line === "") {
                         if (currentEvent === "text" && currentData) {
-                            if (accumulatedText && !currentData.startsWith(' ')) {
-                                accumulatedText += ' ';
-                            }
                             accumulatedText += currentData;
                             setMessages((prev) => {
                                 const updated = [...prev];
