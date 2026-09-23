@@ -6,7 +6,10 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+
+load_dotenv()
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -14,10 +17,9 @@ from langchain_core.utils.uuid import uuid7
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel, SecretStr
+from logger import logger
 from tools import get_recent_news
 from tts import generate_audio_filename, synthesize_text
-
-load_dotenv()
 
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +43,15 @@ agent_executor = create_agent(
     system_prompt=SYSTEM_PROMPT,
     checkpointer=InMemorySaver(),
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    client_host = request.client.host if request.client else "unknown"
+    logger.info(f"{request.method} {request.url.path} from {client_host}")
+    response = await call_next(request)
+    logger.info(f"{request.method} {request.url.path} -> {response.status_code}")
+    return response
 
 
 class Message(BaseModel):
@@ -68,8 +79,10 @@ async def chat_stream(request: ChatRequest):
         config = {"configurable": {"thread_id": str(uuid7())}}
 
         try:
-            # importante el async en el form y el uso del metodo astream para un correcto..
-            # funcionamiento.
+            for msg in messages:
+                if isinstance(msg, HumanMessage):
+                    logger.debug(f"Consulta del usuario: {msg.content}")
+
             async for chunk in agent_executor.astream(
                 {"messages": messages},
                 config=config,
@@ -88,15 +101,25 @@ async def chat_stream(request: ChatRequest):
                             for msg in update.get("messages", []):
                                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                                     for tc in msg.tool_calls:
+                                        logger.debug(f"Tool usada: {tc['name']} | Params: {json.dumps(tc['args'])}")
                                         yield f"event: tool_call\ndata: {json.dumps({'tool_name': tc['name'], 'input': tc['args']})}\n\n"
                         elif source == "tools":
                             for msg in update.get("messages", []):
                                 if hasattr(msg, "content") and msg.content:
+                                    logger.debug(f"Respuesta de tool {msg.content[:200]}")
                                     yield f"event: tool_output\ndata: {msg.content}\n\n"
+
+            logger.debug(f"Respuesta generada: {full_text}")
 
             audio_filename = generate_audio_filename("wav")
             output_path = GENERATED_AUDIO_DIR / audio_filename
-            synthesize_text(full_text, output_path)
+            try:
+                synthesize_text(full_text, output_path)
+            except Exception as e:
+                logger.error(f"Error en TTS: {e}")
+                yield f"event: error\ndata: {json.dumps({'detail': 'Error generating audio'})}\n\n"
+                yield "event: done\ndata: \n\n"
+                return
 
             audio_url = f"/audio/{audio_filename}"
             yield f"event: audio\ndata: {audio_url}\n\n"
@@ -105,6 +128,10 @@ async def chat_stream(request: ChatRequest):
 
         except asyncio.CancelledError:
             raise
+        except Exception as e:
+            logger.error(f"Error en agent: {e}")
+            yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
+            yield "event: done\ndata: \n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -117,13 +144,19 @@ async def chat(request: ChatRequest):
     for msg in request.messages:
         if msg.role in ("user", "human"):
             messages.append(HumanMessage(content=msg.content))
+            logger.debug(f"Consulta del usuario: {msg.content}")
         elif msg.role == "assistant":
             messages.append(AIMessage(content=msg.content))
 
-    result = agent_executor.invoke({"messages": messages})
+    try:
+        result = agent_executor.invoke({"messages": messages})
+    except Exception as e:
+        logger.error(f"Error en agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
     output_messages = result["messages"]
     assistant_response = output_messages[-1].content
+    logger.debug(f"Respuesta generada: {assistant_response}")
 
     print(f"[RESPONSE] {assistant_response}", flush=True)
 
@@ -138,7 +171,10 @@ async def chat(request: ChatRequest):
     import asyncio
 
     async def run_tts():
-        synthesize_text(assistant_response, output_path)
+        try:
+            synthesize_text(assistant_response, output_path)
+        except Exception as e:
+            logger.error(f"Error en TTS: {e}")
 
     asyncio.create_task(run_tts())
 

@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 import requests
+from logger import logger
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
@@ -45,7 +46,11 @@ def synthesize_text(text: str, output_path: Path | None = None) -> dict:
         json=payload,
         timeout=120,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Error en TTS request a {tts_base_url}: {e}")
+        raise
 
     with open(output_path, "wb") as f:
         f.write(response.content)

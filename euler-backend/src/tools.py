@@ -7,6 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 from langchain.tools import tool
 from pydantic import BaseModel, Field
+from logger import logger
 
 
 BASE_URL = "https://www.ing.unlpam.edu.ar"
@@ -109,8 +110,7 @@ def get_recent_news(cantidad: int = Field(default=5, description="Número de nov
     determina cuántas novedades devolver (máximo 10)."""
     news = fetch_faculty_news(n=cantidad)
 
-    print("obteniendo novedades...")
-    print(news)
+    logger.debug(f"Tool get_recent_news | Params: cantidad={cantidad} | Respuesta: {len(news)} novedades obtenidas")
 
     if not news or (len(news) == 1 and news[0].id == 0):
         return news[0].summary if news else "No se pudieron obtener novedades en este momento."
