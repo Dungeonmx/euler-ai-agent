@@ -66,7 +66,6 @@ export const Chat = ({ onPlayAudio }) => {
                         currentEvent = line.slice(7).trim();
                     } else if (line.startsWith("data:")) {
                       currentData = line.slice(6).trimEnd();
-                      console.log(currentData);
                     } else if (line === "") {
                         if (currentEvent === "text" && currentData) {
                             accumulatedText += currentData;
@@ -99,8 +98,7 @@ export const Chat = ({ onPlayAudio }) => {
                     if (line.startsWith("event:")) {
                         currentEvent = line.slice(7).trim();
                     } else if (line.startsWith("data:")) {
-                      currentData = line.slice(6);
-                      console.log(currentData);
+                      currentData = line.slice(6).trimEnd();
                     } else if (line === "") {
                         if (currentEvent === "text" && currentData) {
                             accumulatedText += currentData;
