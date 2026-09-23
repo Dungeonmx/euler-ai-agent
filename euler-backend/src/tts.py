@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import os
 import time
 import uuid
@@ -25,7 +24,7 @@ def synthesize_text(text: str, output_path: Path | None = None) -> dict:
     voice = os.environ["TTS_VOICE"]
     seed = int(os.environ["TTS_SEED"])
     temperature = float(os.environ["TTS_TEMPERATURE"])
-    response_format = os.environ.get("TTS_RESPONSE_FORMAT", "pcm")
+    response_format = os.environ.get("TTS_RESPONSE_FORMAT", "wav")
 
     if output_path is None:
         output_filename = generate_audio_filename(response_format)
@@ -55,32 +54,3 @@ def synthesize_text(text: str, output_path: Path | None = None) -> dict:
         "audio_path": str(output_path),
         "filename": output_filename,
     }
-
-
-def synthesize_pcm(text: str) -> str | None:
-    """Synthesize text to PCM audio and return base64-encoded PCM bytes.
-    Returns None if TTS fails."""
-    tts_base_url = os.environ["TTS_BASE_URL"]
-    voice = os.environ["TTS_VOICE"]
-    seed = int(os.environ["TTS_SEED"])
-    temperature = float(os.environ["TTS_TEMPERATURE"])
-
-    payload = {
-        "input": text,
-        "voice": voice,
-        "response_format": "pcm",
-        "seed": seed,
-        "temperature": temperature,
-    }
-
-    try:
-        response = requests.post(
-            f"{tts_base_url}/audio/speech",
-            json=payload,
-            timeout=120,
-        )
-        response.raise_for_status()
-        pcm_bytes = response.content
-        return base64.b64encode(pcm_bytes).decode("utf-8")
-    except Exception:
-        return None

@@ -149,79 +149,6 @@ const audioFiles = [
   },
 ];
 
-function base64ToFloat32(base64) {
-    const binary = atob(base64);
-    const len = binary.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    const int16 = new Int16Array(bytes.buffer);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i++) {
-        float32[i] = int16[i] / 32768.0;
-    }
-    return float32;
-}
-
-class StreamingAudioQueue {
-    constructor(audioContext) {
-        this.audioContext = audioContext;
-        this.queue = [];
-        this.isPlaying = false;
-        this.currentSource = null;
-        this.connected = false;
-    }
-
-    connectToLipsync() {
-        if (!this.connected) {
-            this.audioContext.destination.connect;
-            this.connected = true;
-        }
-    }
-
-    addPCMBase64(base64) {
-        const float32 = base64ToFloat32(base64);
-        const buffer = this.audioContext.createBuffer(1, float32.length, this.audioContext.sampleRate);
-        buffer.getChannelData(0).set(float32);
-        this.queue.push(buffer);
-        if (!this.isPlaying) {
-            this.playNext();
-        }
-    }
-
-    playNext() {
-        if (this.queue.length === 0) {
-            this.isPlaying = false;
-            this.currentSource = null;
-            return;
-        }
-
-        this.isPlaying = true;
-        const buffer = this.queue.shift();
-        const source = this.audioContext.createBufferSource();
-        source.buffer = buffer;
-        source.connect(this.audioContext.destination);
-        this.currentSource = source;
-
-        source.onended = () => {
-            this.currentSource = null;
-            this.playNext();
-        };
-
-        source.start(0);
-    }
-
-    stop() {
-        if (this.currentSource) {
-            this.currentSource.stop();
-            this.currentSource = null;
-        }
-        this.queue = [];
-        this.isPlaying = false;
-    }
-}
-
 export const Visualizer = () => {
     const canvasRef = useRef(null);
     const visemeRef = useRef(null);
@@ -233,9 +160,6 @@ export const Visualizer = () => {
     const [uploadedFiles, setUploadedFiles] = useState([]);
     const uploadedFilesRef = useRef([]);
     const [activeTab, setActiveTab] = useState("audio");
-
-    const audioContextRef = useRef(null);
-    const streamingQueueRef = useRef(null);
 
     const handleFileUpload = (event) => {
         const files = Array.from(event.target.files);
@@ -294,16 +218,6 @@ export const Visualizer = () => {
             }
         };
     }, [audioFile]);
-
-    const handleAudioChunk = (pcmBase64) => {
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (!streamingQueueRef.current) {
-            streamingQueueRef.current = new StreamingAudioQueue(audioContextRef.current);
-        }
-        streamingQueueRef.current.addPCMBase64(pcmBase64);
-    };
 
     const [detectedVisemes, setDetectedVisemes] = useState([]);
     const prevViseme = useRef(null);
@@ -435,7 +349,7 @@ export const Visualizer = () => {
                 </button>
             </div>
 
-            {activeTab === "chat" && <Chat onPlayAudio={setAudioFile} onAudioChunk={handleAudioChunk} />}
+            {activeTab === "chat" && <Chat onPlayAudio={setAudioFile} />}
 
             <audio ref={audioRef} controls className="w-full" />
 

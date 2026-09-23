@@ -1,23 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-const SAMPLE_RATE = 24000;
-
-function base64ToFloat32(base64) {
-    const binary = atob(base64);
-    const len = binary.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    const int16 = new Int16Array(bytes.buffer);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i++) {
-        float32[i] = int16[i] / 32768.0;
-    }
-    return float32;
-}
-
-export const Chat = ({ onPlayAudio, onAudioChunk }) => {
+export const Chat = ({ onPlayAudio }) => {
     const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState("");
     const [isLoading, setIsLoading] = useState(false);
@@ -85,6 +68,9 @@ export const Chat = ({ onPlayAudio, onAudioChunk }) => {
                         currentData = line.slice(5).trim();
                     } else if (line === "") {
                         if (currentEvent === "text" && currentData) {
+                            if (accumulatedText && !currentData.startsWith(' ')) {
+                                accumulatedText += ' ';
+                            }
                             accumulatedText += currentData;
                             setMessages((prev) => {
                                 const updated = [...prev];
@@ -95,9 +81,7 @@ export const Chat = ({ onPlayAudio, onAudioChunk }) => {
                                 return updated;
                             });
                         } else if (currentEvent === "audio" && currentData) {
-                            if (onAudioChunk) {
-                                onAudioChunk(currentData);
-                            }
+                            onPlayAudio(currentData);
                         } else if (currentEvent === "done") {
                             setIsLoading(false);
                         }
@@ -120,6 +104,9 @@ export const Chat = ({ onPlayAudio, onAudioChunk }) => {
                         currentData = line.slice(5).trim();
                     } else if (line === "") {
                         if (currentEvent === "text" && currentData) {
+                            if (accumulatedText && !currentData.startsWith(' ')) {
+                                accumulatedText += ' ';
+                            }
                             accumulatedText += currentData;
                             setMessages((prev) => {
                                 const updated = [...prev];
@@ -130,9 +117,7 @@ export const Chat = ({ onPlayAudio, onAudioChunk }) => {
                                 return updated;
                             });
                         } else if (currentEvent === "audio" && currentData) {
-                            if (onAudioChunk) {
-                                onAudioChunk(currentData);
-                            }
+                            onPlayAudio(currentData);
                         } else if (currentEvent === "done") {
                             setIsLoading(false);
                         }
@@ -202,17 +187,17 @@ export const Chat = ({ onPlayAudio, onAudioChunk }) => {
                         }`}
                     >
                         <div
-                            className={`rounded-lg px-3 py-2 max-w-80 text-sm ${
+                            className={`rounded-lg px-3 py-2 max-w-80 text-sm break-words whitespace-pre-wrap ${
                                 msg.role === "user"
                                     ? "bg-indigo-500 text-white"
                                     : "bg-white text-gray-900 border border-gray-200"
                             }`}
                         >
-                            {msg.content}
+                            {msg.content}{msg.role === "assistant" && isLoading && <span className="inline-block w-2 h-4 bg-gray-400 animate-pulse ml-0.5 align-middle"></span>}
                         </div>
                     </div>
                 ))}
-                {isLoading && (
+                {isLoading && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content && (
                     <div className="flex justify-start">
                         <div className="rounded-lg px-3 py-2 bg-gray-200 text-gray-700 text-sm animate-pulse">
                             Pensando...
