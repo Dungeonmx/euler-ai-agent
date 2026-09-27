@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 from langchain.tools import tool
 from pydantic import BaseModel, Field
-from logger import logger
+from models.logger import logger
 
 
 BASE_URL = "https://www.ing.unlpam.edu.ar"

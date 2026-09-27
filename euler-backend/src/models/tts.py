@@ -6,7 +6,8 @@ import uuid
 from pathlib import Path
 
 import requests
-from logger import logger
+
+from .logger import logger
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
