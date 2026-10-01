@@ -5,6 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
@@ -20,6 +21,30 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
 
 app = FastAPI(title="Euler AI Agent API", version="1.0.0")
+
+# El widget se sirve desde otro origen que la API (por ejemplo, la pagina de
+# la facultad en www.ing.unlpam.edu.ar). Sin esto el navegador bloquea el fetch
+# antes de que llegue al servidor. En desarrollo no se nota, porque el proxy
+# de vite.config.js hace que ambos vivan en el mismo origen.
+#
+# En produccion hay que restringir CORS_ORIGINS a los dominios reales, en vez
+# de dejar el "*" por defecto de .env.example.
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "*").split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    # El widget no usa cookies ni credenciales, asi que puede quedar en False.
+    # Ademas, allow_credentials=True esta prohibido combinarlo con
+    # allow_origins=["*"].
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 llm = ChatOpenAI(
     model=os.getenv("LLM_MODEL"),

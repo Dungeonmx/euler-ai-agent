@@ -10,15 +10,16 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { VISEMES } from "wawa-lipsync";
 import { lipsyncManager } from "../App";
+import { assetUrl } from "../config";
 
 let setupMode = false;
 
 export function Avatar(props) {
   const { nodes, materials, scene } = useGLTF(
-    "/models/64f1a714fe61576b46f27ca2.glb"
+    assetUrl("models/64f1a714fe61576b46f27ca2.glb")
   );
 
-  const { animations } = useGLTF("/models/animations.glb");
+  const { animations } = useGLTF(assetUrl("models/animations.glb"));
 
   const group = useRef();
   const { actions, mixer } = useAnimations(animations, group);
@@ -177,5 +178,11 @@ export function Avatar(props) {
   );
 }
 
-useGLTF.preload("/models/64f1a714fe61576b46f27ca2.glb");
-useGLTF.preload("/models/animations.glb");
+/*
+  Sin `useGLTF.preload()` a proposito.
+
+  Con preload, el navegador descarga los ~11 MB de los .glb apenas se carga la
+  pagina, aunque el visitante nunca abra el chat. Como el <Canvas> solo se
+  monta cuando el panel esta abierto, sin preload los 11 MB se piden recien
+  cuando el usuario decide usar el chatbot.
+*/

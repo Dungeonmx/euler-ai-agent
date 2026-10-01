@@ -5,57 +5,52 @@
   --font-sans: "Inter", "sans-serif";
 }
 
-#root {
-  width: 100vw;
-  height: 100vh;
+/*
+  Aislación del widget dentro del Shadow DOM:
+  - `all: initial` corta la herencia de estilos de la página anfitriona
+    (tipografía, color, line-height, etc.) hacia adentro del widget.
+  - Se le dan valores base propios para que se vea idéntico en cualquier host.
+
+  La geometria del host (position/z-index) NO va acá sino en `src/mount.jsx`,
+  como estilos inline: tiene que ganarle a cualquier selector de la página
+  anfitriona, y los estilos inline son los únicos que siempre ganan.
+*/
+:host {
+  all: initial;
+  display: block;
+  width: 0;
+  height: 0;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  color: #111827;
+  line-height: 1.5;
 }
 
-body {
-  margin: 0;
+.animate-slide-in-right {
+  animation: slideInRight 0.35s ease-out both;
 }
 
-.animate-fade-in-up {
-  animation: fadeInUp 1s ease-out forwards;
-}
-
-.animate-fade-in-down {
-  animation: fadeInDown 1s ease-out forwards;
-}
-
-.animation-delay-200 {
-  animation-delay: 200ms;
-}
-
-.animation-delay-500 {
-  animation-delay: 500ms;
-}
-
-.animation-delay-1000 {
-  animation-delay: 1000ms;
-}
-
-.animation-delay-1500 {
-  animation-delay: 1500ms;
-}
-
-@keyframes fadeInUp {
+@keyframes slideInRight {
   from {
     opacity: 0;
-    transform: translateY(200px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-200px);
+    transform: translateX(100%);
   }
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+.animate-pop-in {
+  animation: popIn 0.25s ease-out both;
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
