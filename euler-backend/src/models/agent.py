@@ -39,10 +39,10 @@ class Agent:
             checkpointer=InMemorySaver(),
         )
 
-    async def event_generator(self, messages: list[SystemMessage]):
+    async def event_generator(self, messages: list[SystemMessage], conversation_id: int = None):
         full_text = ""
 
-        config = {"configurable": {"thread_id": str(uuid7())}}
+        config = {"configurable": {"thread_id": str(conversation_id) if conversation_id else str(uuid7())}}
 
         try:
             for msg in messages:
@@ -99,5 +99,6 @@ class Agent:
             yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
             yield "event: done\ndata: \n\n"
 
-    def invoke(self, messages: list[SystemMessage]):
-        return self.agent_executor.invoke({"messages": messages})
+    def invoke(self, messages: list[SystemMessage], conversation_id: int = None):
+        config = {"configurable": {"thread_id": str(conversation_id) if conversation_id else str(uuid7())}}
+        return self.agent_executor.invoke({"messages": messages}, config=config)

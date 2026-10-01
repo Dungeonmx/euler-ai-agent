@@ -5,3 +5,7 @@ uvicorn[standard]
 python-dotenv
 requests
 beautifulsoup4
+sqlalchemy[asyncio]
+asyncpg
+alembic
+psycopg2

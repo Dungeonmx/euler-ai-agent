@@ -4,6 +4,7 @@ export const Chat = ({ onPlayAudio }) => {
     const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [conversationId, setConversationId] = useState(null);
     const scrollRef = useRef(null);
     const abortRef = useRef(null);
 
@@ -37,7 +38,7 @@ export const Chat = ({ onPlayAudio }) => {
             const response = await fetch("/chat/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: [...newMessages] }),
+                body: JSON.stringify({ messages: [...newMessages], conversation_id: conversationId }),
                 signal: abortRef.current.signal,
             });
 
@@ -81,6 +82,11 @@ export const Chat = ({ onPlayAudio }) => {
                             onPlayAudio(currentData);
                         } else if (currentEvent === "done") {
                             setIsLoading(false);
+                        } else if (currentEvent === "conversation_id" && currentData) {
+                            const id = parseInt(currentData);
+                            if (!isNaN(id)) {
+                                setConversationId(id);
+                            }
                         }
 
                         currentEvent = null;
@@ -114,6 +120,11 @@ export const Chat = ({ onPlayAudio }) => {
                             onPlayAudio(currentData);
                         } else if (currentEvent === "done") {
                             setIsLoading(false);
+                        } else if (currentEvent === "conversation_id" && currentData) {
+                            const id = parseInt(currentData);
+                            if (!isNaN(id)) {
+                                setConversationId(id);
+                            }
                         }
                         currentEvent = null;
                         currentData = null;
@@ -150,6 +161,7 @@ export const Chat = ({ onPlayAudio }) => {
             abortRef.current.abort();
         }
         setMessages([]);
+        setConversationId(null);
         setIsLoading(false);
     };
 
