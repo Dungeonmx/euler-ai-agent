@@ -216,7 +216,7 @@ python3 -m http.server 5174                              # http://localhost:5174
 
 Abrís `http://localhost:5174` y te aparece el botón abajo a la derecha.
 
-> **Ojo con los puertos:** `npm run dev` (5173) y `npm run preview` (4173) no se pueden usar al mismo tiempo. Si los levantás juntos, Vite puede correrse de puerto y `localhost:5174` termina أحيانes apuntando al servidor equivocado. Para probar, usá `preview`; el `dev` es solo para escribir código.
+> **Ojo con los puertos:** `npm run dev` (5173) y `npm run preview` (4173) no se pueden usar al mismo tiempo. Si los levantás juntos, Vite puede correrse de puerto y `localhost:5174` termina apuntando al servidor equivocado. Para probar, usá `preview`; el `dev` es solo para escribir código.
 
 **Cada vez que hacés un cambio visual:**
 
