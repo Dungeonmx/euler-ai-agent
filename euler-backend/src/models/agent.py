@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.utils.uuid import uuid7
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
@@ -40,7 +40,10 @@ class Agent:
         )
 
     async def event_generator(self, messages: list[SystemMessage], conversation_id: int = None):
-        full_text = ""
+        # full_text_stream: concatenación de tokens SSE (puede tener palabras pegadas)
+        # full_text_final: texto completo del mensaje final del LLM (correcto para TTS)
+        full_text_stream = ""
+        full_text_final = ""
 
         config = {"configurable": {"thread_id": str(conversation_id) if conversation_id else str(uuid7())}}
 
@@ -57,15 +60,26 @@ class Agent:
             ):
                 if chunk["type"] == "messages":
                     token, metadata = chunk["data"]
-                    if hasattr(token, "content") and token.content:
-                        full_text += token.content
+                    # Solo emitir tokens de texto del asistente (AIMessage sin tool_calls)
+                    # Ignorar ToolMessage (output de herramientas) y chunks de tool_calls
+                    if (
+                        isinstance(token, AIMessage)
+                        and token.content
+                        and not getattr(token, "tool_calls", None)
+                        and not getattr(token, "tool_call_chunks", None)
+                    ):
+                        full_text_stream += token.content
                         raw = f"event: text\ndata: {token.content}\n\n"
                         yield ("text", token.content, raw)
+
 
                 elif chunk["type"] == "updates":
                     for source, update in chunk["data"].items():
                         if source == "model":
                             for msg in update.get("messages", []):
+                                # Solo capturar AIMessage finales (no ToolMessage ni AIMessage con tool_calls)
+                                if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                                    full_text_final = msg.content
                                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                                     for tc in msg.tool_calls:
                                         logger.debug(f"Tool usada: {tc['name']} | Params: {json.dumps(tc['args'])}")
@@ -78,12 +92,17 @@ class Agent:
                                     raw = f"event: tool_output\ndata: {msg.content}\n\n"
                                     yield ("tool_output", msg.content, raw)
 
-            logger.debug(f"Respuesta generada: {full_text}")
+            # Usar el texto final del LLM para TTS (tiene espacios correctos)
+            # Si por alguna razón full_text_final está vacío, caer al stream
+            tts_text = full_text_final if full_text_final else full_text_stream
+            logger.debug(f"full_text_stream (tokens SSE): {full_text_stream!r}")
+            logger.debug(f"full_text_final (mensaje LLM): {full_text_final!r}")
+            logger.debug(f"Texto usado para TTS: {tts_text!r}")
 
             audio_filename = generate_audio_filename("wav")
             output_path = GENERATED_AUDIO_DIR / audio_filename
             try:
-                synthesize_text(full_text, output_path)
+                synthesize_text(tts_text, output_path)
             except Exception as e:
                 logger.error(f"Error en TTS: {e}")
                 raw = f"event: error\ndata: {json.dumps({'detail': 'Error generating audio'})}\n\n"
