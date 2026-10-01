@@ -74,6 +74,7 @@ export function Avatar(props) {
       return;
     }
 
+    lipsyncManager.processAudio();
     const viseme = lipsyncManager.viseme;
     const state = lipsyncManager.state;
     lerpMorphTarget(
