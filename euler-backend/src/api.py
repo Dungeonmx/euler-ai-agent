@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 from models.message import Message
 
 load_dotenv()
@@ -31,7 +32,29 @@ app = FastAPI(title="Euler AI Agent API", version="1.0.0")
 agent = Agent()
 
 CONVERSATION_TTL = int(os.getenv("CONVERSATION_TTL_SECONDS", "3600"))
+# El widget se sirve desde otro origen que la API (por ejemplo, la pagina de
+# la facultad en www.ing.unlpam.edu.ar). Sin esto el navegador bloquea el fetch
+# antes de que llegue al servidor. En desarrollo no se nota, porque el proxy
+# de vite.config.js hace que ambos vivan en el mismo origen.
+#
+# En produccion hay que restringir CORS_ORIGINS a los dominios reales, en vez
+# de dejar el "*" por defecto de .env.example.
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "*").split(",")
+    if origin.strip()
+]
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    # El widget no usa cookies ni credenciales, asi que puede quedar en False.
+    # Ademas, allow_credentials=True esta prohibido combinarlo con
+    # allow_origins=["*"].
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
