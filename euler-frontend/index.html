@@ -8,6 +8,13 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // SOLO para `npm run dev`. En desarrollo no se carga `iniciar.js` (que
+      // es quien dibuja el boton flotante e inyecta el widget), asi que no
+      // habria forma de abrir el panel. En el build de produccion este archivo
+      // no se usa: el widget se monta solo, desde `main.jsx`.
+      window.__EULER_CHAT_OPEN_REQUESTED__ = true;
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
