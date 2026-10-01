@@ -28,7 +28,10 @@ class ConversationRepository(BaseRepository[Conversation]):
         conversation = await self.get(conversation_id)
         if not conversation:
             return None
-        conversation.messages["messages"].append(user_message)
+        # Reemplazar el dict completo para que SQLAlchemy detecte el cambio
+        conversation.messages = {
+            "messages": conversation.messages["messages"] + [user_message],
+        }
         conversation.last_activity = datetime.now(timezone.utc)
         conversation.expires_at = Conversation.compute_expires_at(
             conversation.last_activity, self.ttl_seconds
@@ -40,7 +43,10 @@ class ConversationRepository(BaseRepository[Conversation]):
         conversation = await self.get(conversation_id)
         if not conversation:
             return None
-        conversation.messages["messages"].append(assistant_message)
+        # Reemplazar el dict completo para que SQLAlchemy detecte el cambio
+        conversation.messages = {
+            "messages": conversation.messages["messages"] + [assistant_message],
+        }
         conversation.last_activity = datetime.now(timezone.utc)
         conversation.expires_at = Conversation.compute_expires_at(
             conversation.last_activity, self.ttl_seconds

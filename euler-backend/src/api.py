@@ -75,37 +75,74 @@ async def chat_stream(request: ChatRequest):
             conversation = await repo.append_user_message(conversation_id, user_message)
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
+            await session.commit()
         else:
             conversation = await repo.create_conversation([m.model_dump() for m in request.messages])
             conversation_id = conversation.id
+            await session.commit()
 
         messages = _process_request(request)
 
+        event_queue: asyncio.Queue = asyncio.Queue()
+        agent_done = asyncio.Event()
         full_text = ""
         audio_filename = None
 
-        async def stream_with_persist():
+        async def agent_worker():
+            """Ejecuta el agente en segundo plano, emite eventos al queue y recolecta datos."""
             nonlocal full_text, audio_filename
             try:
-                yield f"event: conversation_id\ndata: {conversation_id}\n\n"
-                async for event in agent.event_generator(messages, conversation_id):
-                    yield event
-                    if event.startswith("event: text\ndata:"):
-                        full_text += event.split("data:")[1].strip()
-                    elif event.startswith("event: audio\ndata:"):
-                        audio_filename = event.split("data:")[1].strip()
-                if full_text:
+                await event_queue.put(f"event: conversation_id\ndata: {conversation_id}\n\n")
+                async for event_type, event_data, event_raw in agent.event_generator(messages, conversation_id):
+                    await event_queue.put(event_raw)
+                    if event_type == "text":
+                        full_text += event_data
+                    elif event_type == "audio":
+                        audio_filename = event_data.strip()
+            except asyncio.CancelledError:
+                logger.info("Agent worker cancelled")
+            except Exception as e:
+                logger.error(f"Error en agent worker: {e}")
+            finally:
+                agent_done.set()
+
+        async def commit_after_agent():
+            """Commit despues de que el agente termina (independiente del streaming)."""
+            await agent_done.wait()
+            if full_text:
+                try:
                     await repo.update_with_response(conversation_id, {
                         "role": "assistant",
                         "content": full_text,
                         "audio": f"/audio/{audio_filename}"
                     })
-            except Exception as e:
-                logger.error(f"Error en stream persist: {e}")
-            finally:
-                await session.close()
+                    await session.commit()
+                except Exception as e:
+                    logger.error(f"Error committing response: {e}")
+                finally:
+                    await session.close()
 
-        return StreamingResponse(stream_with_persist(), media_type="text/event-stream")
+        # Lanzar tareas en background
+        asyncio.create_task(agent_worker())
+        asyncio.create_task(commit_after_agent())
+
+        async def event_stream():
+            """Stream de eventos desde el queue hasta que el agente termina."""
+            while not agent_done.is_set():
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                    yield event
+                except asyncio.TimeoutError:
+                    continue
+            # Drain eventos restantes
+            while True:
+                try:
+                    event = event_queue.get_nowait()
+                    yield event
+                except asyncio.QueueEmpty:
+                    break
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
     except HTTPException:
         raise
     except Exception as e:
@@ -124,9 +161,11 @@ async def chat(request: ChatRequest):
             conversation = await repo.append_user_message(conversation_id, user_message)
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
+            await session.commit()
         else:
             conversation = await repo.create_conversation([m.model_dump() for m in request.messages])
             conversation_id = conversation.id
+            await session.commit()
 
         messages = _process_request(request)
 
@@ -148,6 +187,12 @@ async def chat(request: ChatRequest):
 
         assistant_msg = {"role": "assistant", "content": assistant_response, "audio": f"/audio/{audio_filename}"}
         await repo.update_with_response(conversation_id, assistant_msg)
+        try:
+            await session.commit()
+        except Exception as e:
+            logger.error(f"Error al commit de la respuesta: {e}")
+            await session.rollback()
+            raise HTTPException(status_code=500, detail="Error al guardar la respuesta en la base de datos")
 
         async def run_tts():
             try:
@@ -210,6 +255,7 @@ async def delete_conversation(conversation_id: int):
         deleted = await repo.delete(conversation_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        await session.commit()
         return {"detail": "Conversation deleted"}
     except HTTPException:
         raise
@@ -225,6 +271,7 @@ async def delete_all_conversations():
     repo, session = await get_conversation_repo()
     try:
         count = await repo.delete_all()
+        await session.commit()
         return {"detail": f"Deleted {count} conversations"}
     except Exception as e:
         logger.error(f"Error eliminando todas las conversaciones: {e}")

@@ -9,7 +9,7 @@ from langchain_core.utils.uuid import uuid7
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import SecretStr
-from tools import get_recent_news
+from models.tools import get_recent_news
 
 from .logger import logger
 from .tts import generate_audio_filename, synthesize_text
@@ -59,7 +59,8 @@ class Agent:
                     token, metadata = chunk["data"]
                     if hasattr(token, "content") and token.content:
                         full_text += token.content
-                        yield f"event: text\ndata: {token.content}\n\n"
+                        raw = f"event: text\ndata: {token.content}\n\n"
+                        yield ("text", token.content, raw)
 
                 elif chunk["type"] == "updates":
                     for source, update in chunk["data"].items():
@@ -68,12 +69,14 @@ class Agent:
                                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                                     for tc in msg.tool_calls:
                                         logger.debug(f"Tool usada: {tc['name']} | Params: {json.dumps(tc['args'])}")
-                                        yield f"event: tool_call\ndata: {json.dumps({'tool_name': tc['name'], 'input': tc['args']})}\n\n"
+                                        raw = f"event: tool_call\ndata: {json.dumps({'tool_name': tc['name'], 'input': tc['args']})}\n\n"
+                                        yield ("tool_call", tc, raw)
                         elif source == "tools":
                             for msg in update.get("messages", []):
                                 if hasattr(msg, "content") and msg.content:
                                     logger.debug(f"Respuesta de tool {msg.content[:200]}")
-                                    yield f"event: tool_output\ndata: {msg.content}\n\n"
+                                    raw = f"event: tool_output\ndata: {msg.content}\n\n"
+                                    yield ("tool_output", msg.content, raw)
 
             logger.debug(f"Respuesta generada: {full_text}")
 
@@ -83,21 +86,23 @@ class Agent:
                 synthesize_text(full_text, output_path)
             except Exception as e:
                 logger.error(f"Error en TTS: {e}")
-                yield f"event: error\ndata: {json.dumps({'detail': 'Error generating audio'})}\n\n"
-                yield "event: done\ndata: \n\n"
+                raw = f"event: error\ndata: {json.dumps({'detail': 'Error generating audio'})}\n\n"
+                yield ("error", {"detail": "Error generating audio"}, raw)
+                yield ("done", "", "event: done\ndata: \n\n")
                 return
 
             audio_url = f"/audio/{audio_filename}"
-            yield f"event: audio\ndata: {audio_url}\n\n"
+            yield ("audio", audio_url, f"event: audio\ndata: {audio_url}\n\n")
 
-            yield "event: done\ndata: \n\n"
+            yield ("done", "", "event: done\ndata: \n\n")
 
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"Error en agent: {e}")
-            yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
-            yield "event: done\ndata: \n\n"
+            raw = f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
+            yield ("error", {"detail": str(e)}, raw)
+            yield ("done", "", "event: done\ndata: \n\n")
 
     def invoke(self, messages: list[SystemMessage], conversation_id: int = None):
         config = {"configurable": {"thread_id": str(conversation_id) if conversation_id else str(uuid7())}}
