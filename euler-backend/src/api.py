@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from models.agent import Agent
 from models.chatRequest import ChatRequest
@@ -27,8 +28,13 @@ from storage.postgresql.session import async_session
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
+FRONTEND_DIST_DIR = REPO_ROOT / "euler-frontend" / "dist"
+FRONTEND_DIST_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Euler AI Agent API", version="1.0.0")
+
+app.mount("/euler/js", StaticFiles(directory=str(FRONTEND_DIST_DIR)), name="euler_js")
+
 agent = Agent()
 
 CONVERSATION_TTL = int(os.getenv("CONVERSATION_TTL_SECONDS", "3600"))

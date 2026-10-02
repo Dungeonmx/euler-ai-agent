@@ -22,12 +22,19 @@ class Agent:
 
     def __init__(self) -> None:
 
+        thinking_enabled = os.getenv("LLM_THINKING_ENABLED", "false").lower() in ("true", "1", "yes")
+
         self.llm = ChatOpenAI(
             model = str(os.getenv("LLM_MODEL")),
             temperature = float(str(os.getenv("LLM_TEMPERATURE"))),
             base_url = str(os.getenv("LLM_BASE_URL")),
             api_key = SecretStr(str(os.getenv("LLM_API_KEY"))),
             default_headers = {"User-Agent": "python-httpx/0.28.1"},
+            model_kwargs={
+                "extra_body": {
+                    "chat_template_kwargs": {"enable_thinking": thinking_enabled}
+                }
+            }
         )
 
         self.tools = [get_recent_news]
