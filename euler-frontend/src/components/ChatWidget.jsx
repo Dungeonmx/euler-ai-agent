@@ -25,6 +25,36 @@ import { Experience } from "./Experience";
 */
 const AVATAR_SRC = assetUrl("images/robot.svg");
 
+/*
+  Avisos para cuando algo falla.
+
+  Van escritos para una persona que abrio un chat de la facultad, no para un
+  log: a nadie le sirve ver "HTTP 500" o "Failed to fetch". Se distinguen tres
+  casos porque son tres situaciones distintas desde el lado del visitante:
+
+    AVISO_TIMEOUT   el sistema esta lento, es transitorio y el usuario no hizo
+                    nada mal.
+    AVISO_SERVIDOR  fallo de nuestro lado; no vamos a mostrarle el detalle.
+    AVISO_CONEXION  probablemente su internet, algo que si puede revisar.
+
+  El detalle tecnico igual se consola con `console.error`, para depurar sin
+  ensuciar la conversacion.
+*/
+const AVISO_TIMEOUT =
+  "Perdón, estoy tardando demasiado en pensar esto. Ya estoy trabajando para solucionarlo, probá de nuevo en un momento.";
+const AVISO_SERVIDOR =
+  "Uy, algo falló de mi lado. Ya lo estoy revisando. Probá de nuevo en un ratito.";
+const AVISO_CONEXION =
+  "No pude conectarme. Revisá tu conexión a internet y probá de nuevo.";
+
+/*
+  Si el backend no contesta en este tiempo, el front corta la peticion el mismo
+  modo en que lo haria el usuario. Sin esto, si el LLM se cuelga, los tres
+  puntitos quedan girando para siempre y el input se queda bloqueado: no hay
+  forma de recuperarse sin recargar la pagina.
+*/
+const TIMEOUT_MS = 10000;
+
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(consumeOpenRequest);
   const [messages, setMessages] = useState([]);
@@ -60,15 +90,45 @@ export const ChatWidget = () => {
     setInputValue("");
     setIsLoading(true);
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    // Para poder elegir el aviso despues: si llego la respuesta pero venia mal,
+    // el problema no fue la conexion.
+    let llegoRespuesta = false;
+
     try {
       const response = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: newMessages }),
+        signal: controller.signal,
       });
+      llegoRespuesta = true;
+
+      // Un 500 (o cualquier otro codigo distinto de 2xx) no se muestra: se
+      // responde con el aviso amable. Antes se intentaba hacer `response.json()`
+      // igual, y el cuerpo de un error no suele ser JSON, asi que terminaba
+      // cayendo en el `catch` y mostrando "Error al conectar con el servidor".
+      if (!response.ok) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: AVISO_SERVIDOR },
+        ]);
+        return;
+      }
 
       const data = await response.json();
-      const assistantMessage = data.messages.at(-1);
+      const assistantMessage = data.messages?.at(-1);
+
+      // 200 pero sin mensaje: mismo trato que un error del servidor.
+      if (!assistantMessage) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: AVISO_SERVIDOR },
+        ]);
+        return;
+      }
+
       setMessages((prev) => [...prev, assistantMessage]);
 
       if (data.audio_url) {
@@ -96,11 +156,20 @@ export const ChatWidget = () => {
       }
     } catch (error) {
       console.error("Chat error:", error);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Error al conectar con el servidor." },
-      ]);
+
+      // `AbortError` con esta forma solo lo dispara nuestro `setTimeout`, o sea
+      // que es un timeout. Si llego la respuesta pero algo fallo despues, el
+      // problema fue del servidor; si no llego nada, de la conexion.
+      const porTiempo = error?.name === "AbortError";
+      const aviso = porTiempo
+        ? AVISO_TIMEOUT
+        : llegoRespuesta
+          ? AVISO_SERVIDOR
+          : AVISO_CONEXION;
+
+      setMessages((prev) => [...prev, { role: "assistant", content: aviso }]);
     } finally {
+      clearTimeout(timer);
       setIsLoading(false);
     }
   };
