@@ -222,8 +222,8 @@ export const ChatWidget = () => {
     <>
       <audio ref={audioRef} className="hidden" />
 
-      {isOpen && (
-        <div className="animate-pop-in fixed bottom-24 right-6 z-50 flex h-[min(36rem,calc(100dvh-8rem))] w-[min(22rem,calc(100vw-3rem))] flex-col overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-2xl">
+       {isOpen && (
+         <div className="animate-pop-in fixed z-50 flex flex-col overflow-hidden border border-gray-200/70 bg-white shadow-2xl bottom-0 right-0 h-[100dvh] w-full rounded-none sm:bottom-24 sm:right-6 sm:h-[min(36rem,calc(100dvh-8rem))] sm:w-[min(22rem,calc(100vw-3rem))] sm:rounded-2xl">
           <header className="flex items-center gap-3 bg-[linear-gradient(to_right,#6366f1,#ec4899)] px-4 py-3">
             <img
               src={AVATAR_SRC}
