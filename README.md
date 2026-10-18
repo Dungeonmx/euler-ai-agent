@@ -184,7 +184,7 @@ Por qué no se rompe el sitio anfitrión:
 
 - **Shadow DOM** — el widget se monta en su propio árbol de estilos. El CSS de la página no lo alcanza y el del widget no sale. Da igual si el sitio tiene un `* { box-sizing }` o un `button { font-family }` agresivo.
 - **Estilos inline en el host** — la geometría y el `z-index` van como estilos inline, que ganan contra cualquier selector de la página.
-- **Rutas absolutas** — los assets se resuelven contra la URL del widget, no contra la de la página. Sin esto, el avatar daría 404 en cualquier sitio que no tenga un `/images/wawasensei.png`.
+- **Rutas absolutas** — los assets se resuelven contra la URL del widget, no contra la de la página. Sin esto, el avatar daría 404 en cualquier sitio que no tenga un `/images/robot.svg`.
 - **CORS en el backend** — sin `CORSMiddleware` el navegador bloquea el `fetch` antes de que llegue al servidor.
 
 ### Atributos del snippet
@@ -280,7 +280,12 @@ Todo en `euler-frontend/`:
 | Colores, tamaños, posición, textos del **panel** | `src/components/ChatWidget.jsx` |
 | El **botón flotante** | `public/iniciar.js` (está en CSS plano, arriba del archivo) |
 | Animaciones, tipografía | `src/index.css` |
-| La imagen del avatar | `public/images/wawasensei.png` |
+| El avatar de Euler (robotito) | `public/images/robot.svg` |
+
+El avatar es **un solo archivo SVG** compartido por el botón flotante y por el header del
+panel, y lleva sus propias animaciones declaradas adentro (parpadeo, balanceo y latido de
+las antenas). Al ir cargado con `<img>`, un SVG no puede tocar el CSS ni el DOM de la
+página de afuera, que es justo el aislamiento que se quiere.
 
 El botón NO se dibuja en React, a propósito: si se dibujara en los dos lados (en el snippet y en el widget), cada cambio visual habría que aplicarlo en dos lugares y tarde o temprano se desincronizan. Por eso el snippet dibuja el botón y React solo el panel.
 

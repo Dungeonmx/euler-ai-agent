@@ -111,13 +111,13 @@ Acá está el bug más importante, y el más fácil de no ver.
 Si el avatar estuviera escrito así:
 
 ```js
-<img src="images/wawasensei.png" />                       // MAL
+<img src="images/robot.svg" />                            // MAL
 const modelo = useGLTF("models/64f1a714fe61576b46f27ca2.glb");  // MAL
 ```
 
 esas rutas son **relativas**, así que el navegador las resuelve contra la URL de la
 **página anfitriona**, no contra el servidor del widget. En la página de la veterinaria
-iría a pedir `/images/wawasensei.png` a su propio servidor, daría 404, y el avatar
+iría a pedir `/images/robot.svg` a su propio servidor, daría 404, y el avatar
 3D no aparecería nunca.
 
 Por eso todos los assets pasan por `assetUrl()` (`src/config.js`), que los convierte en
@@ -278,7 +278,13 @@ nunca**: cuando actualizás el `dist/` en el servidor, todas las páginas que ya
 | Colores, tamaños, posición, textos del **panel** | `src/components/ChatWidget.jsx` |
 | El **botón flotante** | `public/iniciar.js` — está en CSS plano, en la variable `CSS`, arriba del archivo |
 | Animaciones, tipografía | `src/index.css` |
-| La imagen del avatar del botón | `public/images/wawasensei.png` |
+| El avatar de Euler (robotito) | `public/images/robot.svg` |
+
+El avatar es **un solo archivo SVG** compartido por el botón flotante y por el header del
+panel. Lleva sus propias animaciones declaradas adentro —parpadeo, balanceo y latido de
+las antenas—, así que andan igual dentro del Shadow DOM del botón que dentro del panel en
+React. Al ir cargado con `<img>`, un SVG no puede tocar el CSS ni el DOM de la página de
+afuera, que es justo el aislamiento que se quiere.
 
 ---
 

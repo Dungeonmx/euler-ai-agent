@@ -23,7 +23,7 @@ import { Experience } from "./Experience";
   incrustar en cualquier sitio, no se pueden usar las utilidades de gradiente
   de Tailwind. Si alguna vez se actualiza Tailwind, hay que volver a probar esto.
 */
-const AVATAR_SRC = assetUrl("images/wawasensei.png");
+const AVATAR_SRC = assetUrl("images/robot.svg");
 
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(consumeOpenRequest);
