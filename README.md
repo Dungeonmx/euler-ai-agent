@@ -42,7 +42,7 @@ euler-ai-agent/
     │   │   └── Experience.jsx   # Escena Three.js
     │   ├── index.css        # Estilos del widget
     │   └── App.jsx
-    ├── index.html           # Solo para `npm run dev`
+    ├── index.html           # Carga el snippet real; solo lo usa `npm run dev`
     ├── package.json
     └── vite.config.js
 ```
@@ -196,37 +196,80 @@ Por qué no se rompe el sitio anfitrión:
 
 ### Cómo trabajar con los cambios
 
-`dist/` es lo único que hay que subir al servidor. **Todos los sitios que ya tengan el `<script>` actualizado ven los cambios al instante**, sin tocar el HTML de nadie.
+Hay **dos escenarios distintos**, y cada uno necesita un número distinto de terminales.
 
-**Levantar todo para probar** (3 terminales):
+#### A) Cambiar cosas — lo que se usa el 99% del tiempo
+
+**Dos terminales:**
 
 ```bash
-# 1 — Backend (solo si tocás algo del LLM o del TTS)
+# Terminal 1 — Backend
 cd ~/Dev/euler-ai-agent/euler-backend
-source .venv/bin/activate && python src/main.py          # http://localhost:8000
+python src/main.py                                          # http://localhost:8000
 
-# 2 — Widget compilado y servido en dist/
+# Terminal 2 — Frontend
 cd ~/Dev/euler-ai-agent/euler-frontend
-npm run build && npm run preview                          # http://localhost:4173
-
-# 3 — La "página de la facultad" de mentira
-cd ~/Dev/pagina-gatitos
-python3 -m http.server 5174                              # http://localhost:5174
+npm run dev                                                 # http://localhost:5173
 ```
 
-Abrís `http://localhost:5174` y te aparece el botón abajo a la derecha.
+Abrís **`http://localhost:5173`**. Aparece el botón flotante abajo a la derecha, igual
+que en producción, porque el `index.html` de desarrollo carga el mismo `iniciar.js` que
+usa cualquier sitio externo. El proxy de Vite le manda los mensajes al backend, así que
+**el chat responde**.
 
-> **Ojo con los puertos:** `npm run dev` (5173) y `npm run preview` (4173) no se pueden usar al mismo tiempo. Si los levantás juntos, Vite puede correrse de puerto y `localhost:5174` termina apuntando al servidor equivocado. Para probar, usá `preview`; el `dev` es solo para escribir código.
+Acá tenés **HMR**: editás, guardás, el navegador se actualiza solo. No hay que recompilar.
 
-**Cada vez que hacés un cambio visual:**
+#### B) Verlo embebido en una página ajena
 
-1. Editás `euler-frontend/src/components/ChatWidget.jsx` (o `src/index.css` para animaciones)
-2. `npm run build`
-3. Recargás el navegador
+**Tres terminales**, porque estás simulando tres servidores reales:
 
-No hay HMR: `npm run preview` sirve `dist/` estático, así que hay que recompilar y recargar. No es una molestia, el build tarda ~3 segundos y es exactamente el mismo ciclo que va a tener la página de la facultad.
+```bash
+# Terminal 1 — Backend
+cd ~/Dev/euler-ai-agent/euler-backend
+python src/main.py                                          # http://localhost:8000
 
-> Para iterar más rápido existe `npm run dev` (localhost:5173, con HMR y proxy a `/chat`). Pero ahí el widget se sirve desde la raíz de Vite, así que no reproduce exactamente la realidad. Usalo para escribir código y el `build` para verificar.
+# Terminal 2 — Los archivos del widget
+cd ~/Dev/euler-ai-agent/euler-frontend
+npm run build && npm run preview                            # http://localhost:4173
+
+# Terminal 3 — La página que lo incrusta
+cd ~/Dev/pagina-gatitos
+python3 -m http.server 5174                                # http://localhost:5174
+```
+
+Abrís **`http://localhost:5174`**.
+
+> **Importante:** `pagina-gatitos` **no contiene el chatbot**. Es un HTML con una sola
+> línea relevante:
+>
+> ```html
+> <script src="http://localhost:4173/iniciar.js" data-api="http://localhost:8000"></script>
+> ```
+>
+> Pide `iniciar.js` al **4173**. Si el terminal 2 no está levantado, ese script da 404, no
+> se dibuja el botón, y el sitio se ve normal sin ningún error que te avise. **Ese es el
+> síntoma más confuso: si en 5174 no aparece nada, falta el `npm run preview`.**
+
+Si vas a iterar sobre el build: editás → `npm run build` → recargás. ~3 segundos, y es el
+mismo ciclo que va a tener la página de la facultad.
+
+#### Tabla de puertos
+
+| Puerto | Quién lo levanta | Qué se ve |
+|---|---|---|
+| **8000** | `python src/main.py` | La API del chat. No se navega. |
+| **4173** | `npm run preview` | **Nada.** Es solo la carpeta de archivos. |
+| **5173** | `npm run dev` | El chatbot suelto, con su botón flotante. |
+| **5174** | `http.server` en `pagina-gatitos` | La veterinaria **con el chatbot abajo a la derecha**. |
+
+`localhost:4173` da 404 a propósito: `dist/` no tiene `index.html`, porque el widget no
+es una página, es un componente que se inyecta en la de otro.
+
+> **Nota sobre puertos:** `npm run dev` (5173) y `npm run preview` (4173) sí pueden correr
+> juntos, van a puertos distintos. Lo que no pueden es competir por el mismo: por eso
+> ambos tienen `strictPort: true`, así que si el puerto está ocupado Vite **falla** en vez
+> de correrse silenciosamente a otro y robarle el puerto a `pagina-gatitos`.
+
 
 ### Dónde se hacen los cambios visuales
 

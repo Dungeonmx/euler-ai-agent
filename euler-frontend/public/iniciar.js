@@ -66,6 +66,14 @@
 
   function loadWidget() {
     if (document.getElementById(WIDGET_ID)) return;
+    if (window.__EULER_CHAT_MOUNTED__) return;
+
+    // En `npm run dev` no hay `dist/euler-chat.js` en disco: el server de
+    // desarrollo trae el widget transformado desde `/src/main.jsx`. Sin este
+    // guard, abrir el chat antes de que termine de montar pediria un archivo
+    // inexistente.
+    if (window.__EULER_CHAT_DEV__) return;
+
     var script = document.createElement("script");
     script.id = WIDGET_ID;
     script.src = base + "euler-chat.js";
