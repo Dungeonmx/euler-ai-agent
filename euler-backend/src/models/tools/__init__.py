@@ -6,8 +6,10 @@ Para agregar una nueva tool, creá un archivo .py en este directorio
 y exportala desde este __init__.py.
 """
 
+from .careers import get_carreras
 from .faculty_news import get_recent_news
 
 __all__ = [
     "get_recent_news",
+    "get_carreras",
 ]

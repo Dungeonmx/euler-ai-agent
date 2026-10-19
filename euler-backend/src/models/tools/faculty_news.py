@@ -1,88 +1,29 @@
+"""Tool de novedades de la Facultad de Ingeniería (UNLPam).
+
+Lee la tabla ``contenido`` de la base pública de la facultad (MariaDB) usando la
+conexión compartida de ``storage.chatbot_public``. Todas las operaciones son de
+lectura (``SELECT``); nunca se modifica la base de datos.
+"""
+
 from __future__ import annotations
 
-import json
-import os
-from typing import Optional
-
-import pymysql
 from langchain.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import Field
+from sqlalchemy import select
 
 from models.logger import logger
+from storage.chatbot_public import Contenido, get_chatbot_public_session
 
 
-class FacultyNews(BaseModel):
-    id: int = Field(description="Identificador único de la novedad en la facultad")
-    title: str = Field(description="Título de la novedad o noticia")
-    summary: Optional[str] = Field(default=None, description="Resumen o copete de la novedad")
-    content: Optional[str] = Field(default=None, description="Contenido completo de la novedad")
-    category: Optional[str] = Field(default=None, description="Categoría de la novedad")
-    published_at: Optional[str] = Field(default=None, description="Fecha de publicación")
-    url: Optional[str] = Field(default=None, description="URL completa para acceder a la novedad")
-
-
-def _get_db_connection() -> pymysql.Connection:
-    """Crea y retorna una conexión a la base de datos MariaDB."""
-    return pymysql.connect(
-        host=os.environ.get("MARIADB_HOST", "localhost"),
-        port=int(os.environ.get("MARIADB_PORT", "3306")),
-        user=os.environ.get("MARIADB_USER", "root"),
-        password=os.environ.get("MARIADB_PASSWORD", ""),
-        database=os.environ.get("MARIADB_DB", "euler"),
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-        connect_timeout=10,
-    )
-
-
-def fetch_faculty_news(n: int = 5) -> list[FacultyNews]:
-    """Obtiene las novedades más recientes de la tabla `contenido` en MariaDB."""
-    conn = None
-    try:
-        conn = _get_db_connection()
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                    id,
-                    tipo,
-                    categoria,
-                    titulo,
-                    resumen,
-                    contenido,
-                    fecha_publicacion,
-                    url
-                FROM contenido
-                ORDER BY fecha_publicacion DESC
-                LIMIT %s
-                """,
-                (n,),
-            )
-            rows = cursor.fetchall()
-
-        results: list[FacultyNews] = []
-        for row in rows:
-            fecha = row["fecha_publicacion"]
-            fecha_str = fecha.strftime("%Y-%m-%d %H:%M") if fecha else None
-            results.append(
-                FacultyNews(
-                    id=row["id"],
-                    title=row["titulo"],
-                    summary=row.get("resumen"),
-                    content=row.get("contenido"),
-                    category=row.get("categoria"),
-                    published_at=fecha_str,
-                    url=row.get("url"),
-                )
-            )
-        return results
-
-    except pymysql.MySQLError as e:
-        logger.error(f"Error al consultar la base de datos de novedades: {e}")
-        return []
-    finally:
-        if conn:
-            conn.close()
+def fetch_faculty_news(n: int = 5) -> list[Contenido]:
+    """Obtiene las novedades más recientes de la tabla ``contenido``."""
+    with get_chatbot_public_session() as session:
+        result = session.execute(
+            select(Contenido)
+            .order_by(Contenido.fecha_publicacion.desc())
+            .limit(n)
+        )
+        return list(result.scalars().all())
 
 
 @tool
@@ -107,13 +48,13 @@ def get_recent_news(
 
     partes = []
     for i, item in enumerate(news, 1):
-        lineas = [f"Novedad {i}: {item.title}"]
-        if item.category:
-            lineas.append(f"Categoría: {item.category}")
-        if item.published_at:
-            lineas.append(f"Fecha: {item.published_at}")
-        if item.summary:
-            lineas.append(f"Resumen: {item.summary}")
+        lineas = [f"Novedad {i}: {item.titulo}"]
+        if item.categoria:
+            lineas.append(f"Categoría: {item.categoria}")
+        if item.fecha_publicacion:
+            lineas.append(f"Fecha: {item.fecha_publicacion.strftime('%Y-%m-%d %H:%M')}")
+        if item.resumen:
+            lineas.append(f"Resumen: {item.resumen}")
         if item.url:
             lineas.append(f"URL: {item.url}")
         partes.append("\n".join(lineas))

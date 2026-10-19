@@ -9,7 +9,7 @@ from langchain_core.utils.uuid import uuid7
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import SecretStr
-from models.tools import get_recent_news
+from models.tools import get_carreras, get_recent_news
 
 from .logger import logger
 from .tts import generate_audio_filename, synthesize_text
@@ -37,7 +37,7 @@ class Agent:
             }
         )
 
-        self.tools = [get_recent_news]
+        self.tools = [get_recent_news, get_carreras]
 
         self.agent_executor = create_agent(
             self.llm,
