@@ -6,14 +6,25 @@ import { defineConfig } from "vite";
 export default defineConfig(({ command }) => ({
   base: "./",
   plugins: [react(), tailwindcss()],
+  /*
+    `strictPort: true` es importante: sin eso, si el puerto pedido esta ocupado,
+    Vite se corre silenciosamente a otro (por ejemplo 5174) y empieza a
+    competir con la pagina de prueba. Con `strictPort` falla ruidosamente en
+    vez de quedarse con un puerto prestado.
+  */
   server: {
+    port: 5173,
+    strictPort: true,
     proxy: {
       "/chat": "http://localhost:8000",
       "/audio": "http://localhost:8000",
     },
   },
   preview: {
+    port: 4173,
+    host: true,
     cors: true,
+    strictPort: true,
   },
   /*
     En el bundle de libreria, Vite deja las referencias a `process.env.*` sin

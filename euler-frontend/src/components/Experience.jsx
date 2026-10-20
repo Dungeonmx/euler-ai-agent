@@ -6,16 +6,16 @@ export const Experience = () => {
   const controls = useRef();
 
   useEffect(() => {
-    controls.current.setLookAt(1, 2.2, 10, 0, 1.5, 0);
-    controls.current.setLookAt(0.1, 1.7, 1, 0, 1.5, 0, true);
+    controls.current.setLookAt(0.8, 2.0, 8, 0, 1.4, 0);
+    controls.current.setLookAt(0.15, 1.9, 1.4, 0, 1.25, 0, true);
   }, []);
 
   return (
     <>
       <CameraControls ref={controls} />
-      <directionalLight position={[1, 0.5, -3]} intensity={2} color="blue" />
-      <directionalLight position={[-1, 0.5, -2]} intensity={2} color="red" />
-      <directionalLight position={[1, 1, 3]} intensity={2} />
+      <directionalLight position={[1, 0.8, -2]} intensity={2} color="#a5b4fc" />
+      <directionalLight position={[-1, 0.6, -1.5]} intensity={2} color="#f9a8d4" />
+      <directionalLight position={[0.5, 1.2, 2.5]} intensity={2.2} />
       <Avatar />
     </>
   );

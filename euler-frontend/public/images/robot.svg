@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Euler">
+  <!--
+    Avatar de Euler. Un solo archivo para el boton flotante (iniciar.js) y para
+    el header del panel (ChatWidget.jsx): si hubiera dos copias del diseno, tarde
+    o temprano se desincronizan.
+
+    Se dibuja en SVG en vez de usar un PNG para que:
+      - No haya asset externo que descargar.
+      - Escale nitido a cualquier tamano.
+      - Las animaciones viajen adentro del propio archivo, asi funcionan igual
+        dentro del Shadow DOM del boton que dentro del panel en React.
+
+    Va cargado con <img>, no inline: un SVG en <img> no puede tocar la pagina
+    de afuera (ni su CSS ni su DOM), que es justo el aislamiento que queremos.
+
+    OJO con los limites: el boton es un circulo de radio 24 y recorta lo que se
+    salga. El grupo exterior encoge el dibujo al 85% para que las puntas de las
+    antenas tengan margen cuando la cabeza se levanta (con 88% quedaba apenas
+    ~1px libre, y con 85% quedan ~2.3px).
+  -->
+  <style>
+    .bob {
+      transform-box: view-box;
+      transform-origin: 24px 24px;
+      animation: bob 1.8s ease-in-out infinite;
+    }
+    @keyframes bob {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      30%      { transform: translateY(-3.2px) rotate(-2.8deg); }
+      70%      { transform: translateY(-1.1px) rotate(2deg); }
+    }
+
+    /* Los ojos se aplastan un instante cada ~2,8 segundos. */
+    .blink {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: blink 2.8s infinite;
+    }
+    @keyframes blink {
+      0%, 88%, 100% { transform: scaleY(1); }
+      93%           { transform: scaleY(0.06); }
+    }
+
+    /* Las antenas laten en ritmo distinto al resto, para que se note que esta vivo. */
+    .pulse {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: pulse 1.7s ease-in-out infinite;
+    }
+    .pulse.late {
+      animation-delay: 0.85s;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1;   transform: scale(1); }
+      50%      { opacity: .55; transform: scale(1.45); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .bob, .blink, .pulse { animation: none; }
+    }
+  </style>
+
+  <g transform="translate(24 24) scale(0.85) translate(-24 -24)">
+    <g class="bob">
+      <!-- Antenas -->
+      <g stroke="rgba(255,255,255,.85)" stroke-width="2.4" stroke-linecap="round">
+        <line x1="17.5" y1="14.5" x2="12.8" y2="7.2" />
+        <line x1="30.5" y1="14.5" x2="35.2" y2="7.2" />
+      </g>
+      <circle class="pulse"      cx="12.2" cy="6.2"  r="2.5" fill="#fbbf24" />
+      <circle class="pulse late" cx="35.8" cy="6.2"  r="2.5" fill="#fbbf24" />
+
+      <!-- Orejas / tornillos laterales -->
+      <rect x="4.6"  y="20.5" width="4.6" height="9.5" rx="2.3" fill="#e0e7ff" />
+      <rect x="38.8" y="20.5" width="4.6" height="9.5" rx="2.3" fill="#e0e7ff" />
+
+      <!-- Cabeza -->
+      <rect x="9" y="13" width="30" height="25" rx="8.5" fill="#ffffff" />
+
+      <!-- Ojos -->
+      <g>
+        <g class="blink">
+          <circle cx="19.4" cy="24" r="3.3" fill="#1e293b" />
+          <circle cx="20.6" cy="22.8" r="1.05" fill="#ffffff" />
+        </g>
+        <g class="blink">
+          <circle cx="28.6" cy="24" r="3.3" fill="#1e293b" />
+          <circle cx="29.8" cy="22.8" r="1.05" fill="#ffffff" />
+        </g>
+      </g>
+
+      <!-- Sonrisa -->
+      <path d="M19 30.4 Q24 34.9 29 30.4" fill="none" stroke="#1e293b"
+            stroke-width="2.3" stroke-linecap="round" />
+
+      <!-- Mejillas -->
+      <circle cx="15"   cy="28.8" r="2.1" fill="#fb7185" opacity=".7" />
+      <circle cx="33"   cy="28.8" r="2.1" fill="#fb7185" opacity=".7" />
+    </g>
+  </g>
+</svg>
