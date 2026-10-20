@@ -234,6 +234,9 @@ euler-backend/.models/
 # Generated audio files
 euler-backend/audios/generated/
 
+# Logs
+euler-backend/logs/
+
 # ============================================
 # Frontend (euler-frontend)
 # ============================================

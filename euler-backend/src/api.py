@@ -4,24 +4,74 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_agent
-
-from tts import synthesize_text, generate_audio_filename
-from tools import get_recent_news
+from models.message import Message
 
 load_dotenv()
+
+import asyncio
+from datetime import datetime, timezone
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from models.agent import Agent
+from models.chatRequest import ChatRequest
+from models.conversation import Conversation
+from models.logger import logger
+from models.tts import generate_audio_filename, synthesize_text
+from repositories.conversation import ConversationRepository
+from schemas.conversation import ChatResponse, ConversationList, ConversationRead
+from storage.postgresql.session import async_session
 
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
 
+# Directorio con el build del widget que se sirve en /euler/js. Por defecto
+# apunta al dist del frontend (carpeta hermana de euler-backend/). En produccion
+# se puede sobreescribir con FRONTEND_DIST_DIR.
+DEFAULT_FRONTEND_DIST_DIR = REPO_ROOT.parent / "euler-frontend" / "dist"
+FRONTEND_DIST_DIR = Path(
+    os.getenv("FRONTEND_DIST_DIR", str(DEFAULT_FRONTEND_DIST_DIR))
+).expanduser().resolve()
+
+WIDGET_REQUIRED_FILES = ("iniciar.js", "euler-chat.js")
+
+
+def _check_frontend_dist() -> None:
+    """Valida el directorio del widget antes de montarlo.
+
+    StaticFiles exige que el directorio exista al inicializar, asi que si falta
+    se crea vacio. Si no estan los archivos clave del snippet se avisa por log,
+    para que el 404 de /euler/js no sea un fallo silencioso.
+    """
+    if not FRONTEND_DIST_DIR.is_dir():
+        logger.warning(
+            f"No existe el directorio del widget ({FRONTEND_DIST_DIR}); se crea vacio. "
+            f"/euler/js devolvera 404."
+        )
+        FRONTEND_DIST_DIR.mkdir(parents=True, exist_ok=True)
+
+    faltantes = [f for f in WIDGET_REQUIRED_FILES if not (FRONTEND_DIST_DIR / f).is_file()]
+    if faltantes:
+        logger.warning(
+            f"Widget incompleto en {FRONTEND_DIST_DIR}: faltan {faltantes}. "
+            f"/euler/js devolvera 404. Construi el frontend (bun/npm run build) "
+            f"o defini FRONTEND_DIST_DIR."
+        )
+
+
+_check_frontend_dist()
+
 app = FastAPI(title="Euler AI Agent API", version="1.0.0")
 
+app.mount("/euler/js", StaticFiles(directory=str(FRONTEND_DIST_DIR)), name="euler_js")
+
+agent = Agent()
+
+CONVERSATION_TTL = int(os.getenv("CONVERSATION_TTL_SECONDS", "3600"))
 # El widget se sirve desde otro origen que la API (por ejemplo, la pagina de
 # la facultad en www.ing.unlpam.edu.ar). Sin esto el navegador bloquea el fetch
 # antes de que llegue al servidor. En desarrollo no se nota, porque el proxy
@@ -46,67 +96,251 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-llm = ChatOpenAI(
-    model=os.getenv("LLM_MODEL"),
-    temperature=float(os.getenv("LLM_TEMPERATURE")),
-    base_url=os.getenv("LLM_BASE_URL"),
-    api_key=os.getenv("LLM_API_KEY"),
-    default_headers={"User-Agent": "python-httpx/0.28.1"},
-)
-
-tools = [get_recent_news]
-
-agent_executor = create_agent(
-    llm,
-    tools=tools,
-    system_prompt=SYSTEM_PROMPT,
-)
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    client_host = request.client.host if request.client else "unknown"
+    logger.info(f"{request.method} {request.url.path} from {client_host}")
+    response = await call_next(request)
+    logger.info(f"{request.method} {request.url.path} -> {response.status_code}")
+    return response
 
 
-class Message(BaseModel):
-    role: str
-    content: str
+async def get_conversation_repo():
+    session = async_session()
+    try:
+        repo = ConversationRepository(session, ttl_seconds=CONVERSATION_TTL)
+        return repo, session
+    except Exception:
+        await session.close()
+        raise
 
 
-class ChatRequest(BaseModel):
-    messages: list[Message]
-
-
-class ChatResponse(BaseModel):
-    messages: list[Message]
-    audio_url: str
-
-
-@app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
-    from langchain_core.messages import HumanMessage, SystemMessage
-
+def _process_request(request: ChatRequest):
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
     for msg in request.messages:
         if msg.role in ("user", "human"):
             messages.append(HumanMessage(content=msg.content))
+            logger.debug(f"Consulta del usuario: {msg.content}")
         elif msg.role == "assistant":
-            from langchain_core.messages import AIMessage
             messages.append(AIMessage(content=msg.content))
 
-    result = agent_executor.invoke({"messages": messages})
+    return messages
 
-    output_messages = result["messages"]
-    assistant_response = output_messages[-1].content
 
-    all_messages = list(request.messages) + [
-        Message(role="assistant", content=assistant_response)
-    ]
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    repo, session = await get_conversation_repo()
+    try:
+        conversation_id = request.conversation_id
+        user_message = request.messages[-1].model_dump() if request.messages else None
 
-    response_format = os.environ.get("TTS_RESPONSE_FORMAT", "wav")
-    audio_filename = generate_audio_filename(response_format)
-    output_path = GENERATED_AUDIO_DIR / audio_filename
-    background_tasks.add_task(synthesize_text, assistant_response, output_path)
+        if conversation_id:
+            conversation = await repo.append_user_message(conversation_id, user_message)
+            if not conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            await session.commit()
+        else:
+            conversation = await repo.create_conversation([m.model_dump() for m in request.messages])
+            conversation_id = conversation.id
+            await session.commit()
 
-    return ChatResponse(
-        messages=all_messages,
-        audio_url=f"/audio/{audio_filename}",
-    )
+        messages = _process_request(request)
+
+        event_queue: asyncio.Queue = asyncio.Queue()
+        agent_done = asyncio.Event()
+        full_text = ""
+        audio_filename = None
+
+        async def agent_worker():
+            """Ejecuta el agente en segundo plano, emite eventos al queue y recolecta datos."""
+            nonlocal full_text, audio_filename
+            try:
+                await event_queue.put(f"event: conversation_id\ndata: {conversation_id}\n\n")
+                async for event_type, event_data, event_raw in agent.event_generator(messages, conversation_id):
+                    await event_queue.put(event_raw)
+                    if event_type == "text":
+                        full_text += event_data
+                    elif event_type == "audio":
+                        audio_filename = event_data.strip()
+            except asyncio.CancelledError:
+                logger.info("Agent worker cancelled")
+            except Exception as e:
+                logger.error(f"Error en agent worker: {e}")
+            finally:
+                agent_done.set()
+
+        async def commit_after_agent():
+            """Commit despues de que el agente termina (independiente del streaming)."""
+            await agent_done.wait()
+            if full_text:
+                try:
+                    await repo.update_with_response(conversation_id, {
+                        "role": "assistant",
+                        "content": full_text,
+                        "audio": f"/audio/{audio_filename}"
+                    })
+                    await session.commit()
+                except Exception as e:
+                    logger.error(f"Error committing response: {e}")
+                finally:
+                    await session.close()
+
+        # Lanzar tareas en background
+        asyncio.create_task(agent_worker())
+        asyncio.create_task(commit_after_agent())
+
+        async def event_stream():
+            """Stream de eventos desde el queue hasta que el agente termina."""
+            while not agent_done.is_set():
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                    yield event
+                except asyncio.TimeoutError:
+                    continue
+            # Drain eventos restantes
+            while True:
+                try:
+                    event = event_queue.get_nowait()
+                    yield event
+                except asyncio.QueueEmpty:
+                    break
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en stream: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    repo, session = await get_conversation_repo()
+    try:
+        conversation_id = request.conversation_id
+        user_message = request.messages[-1].model_dump() if request.messages else None
+
+        if conversation_id:
+            conversation = await repo.append_user_message(conversation_id, user_message)
+            if not conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            await session.commit()
+        else:
+            conversation = await repo.create_conversation([m.model_dump() for m in request.messages])
+            conversation_id = conversation.id
+            await session.commit()
+
+        messages = _process_request(request)
+
+        try:
+            result = agent.invoke(messages, conversation_id)
+        except Exception as e:
+            logger.error(f"Error en agent: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+        output_messages = result["messages"]
+        assistant_response = output_messages[-1].content
+        logger.debug(f"Respuesta generada: {assistant_response}")
+
+        print(f"[RESPONSE] {assistant_response}", flush=True)
+
+        response_format = os.environ.get("TTS_RESPONSE_FORMAT", "wav")
+        audio_filename = generate_audio_filename(response_format)
+        output_path = GENERATED_AUDIO_DIR / audio_filename
+
+        assistant_msg = {"role": "assistant", "content": assistant_response, "audio": f"/audio/{audio_filename}"}
+        await repo.update_with_response(conversation_id, assistant_msg)
+        try:
+            await session.commit()
+        except Exception as e:
+            logger.error(f"Error al commit de la respuesta: {e}")
+            await session.rollback()
+            raise HTTPException(status_code=500, detail="Error al guardar la respuesta en la base de datos")
+
+        async def run_tts():
+            try:
+                synthesize_text(assistant_response, output_path)
+            except Exception as e:
+                logger.error(f"Error en TTS: {e}")
+
+        asyncio.create_task(run_tts())
+
+        all_messages = list(request.messages) + [Message(role="assistant", content=assistant_response)]
+
+        return ChatResponse(
+            messages=[m.model_dump() for m in all_messages],
+            audio_url=f"/audio/{audio_filename}",
+            conversation_id=conversation_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en chat: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await session.close()
+
+
+@app.get("/conversations", response_model=ConversationList)
+async def list_conversations(page: int = 1, per_page: int = 20):
+    repo, session = await get_conversation_repo()
+    try:
+        conversations = await repo.list_active(page=page, per_page=per_page)
+        return conversations
+    except Exception as e:
+        logger.error(f"Error listando conversaciones: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await session.close()
+
+
+@app.get("/conversations/{conversation_id}", response_model=ConversationRead)
+async def get_conversation(conversation_id: int):
+    repo, session = await get_conversation_repo()
+    try:
+        conversation = await repo.get_by_id(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conversation
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error obteniendo conversacion: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await session.close()
+
+
+@app.delete("/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: int):
+    repo, session = await get_conversation_repo()
+    try:
+        deleted = await repo.delete(conversation_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        await session.commit()
+        return {"detail": "Conversation deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error eliminando conversacion: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await session.close()
+
+
+@app.delete("/conversations")
+async def delete_all_conversations():
+    repo, session = await get_conversation_repo()
+    try:
+        count = await repo.delete_all()
+        await session.commit()
+        return {"detail": f"Deleted {count} conversations"}
+    except Exception as e:
+        logger.error(f"Error eliminando todas las conversaciones: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await session.close()
 
 
 @app.get("/audio/{filename}")

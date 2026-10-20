@@ -21,6 +21,38 @@ export function Avatar(props) {
   const rightCheekRef = useRef();
 
   const [blink, setBlink] = useState(false);
+  const [winkLeft, setWinkLeft] = useState(false);
+  const [winkRight, setWinkRight] = useState(false);
+
+  useFrame(() => {
+    lerpMorphTarget("eyeBlinkLeft", blink || winkLeft ? 1 : 0, 0.5);
+    lerpMorphTarget("eyeBlinkRight", blink || winkRight ? 1 : 0, 0.5);
+
+    // LIPSYNC
+    if (setupMode) {
+      return;
+    }
+
+    lipsyncManager.processAudio();
+    const viseme = lipsyncManager.viseme;
+    const state = lipsyncManager.state;
+    lerpMorphTarget(
+      viseme,
+      1,
+      state === "vowel" ? 0.2 : 0.4
+    );
+
+    Object.values(VISEMES).forEach((value) => {
+      if (viseme === value) {
+        return;
+      }
+      lerpMorphTarget(
+        value,
+        0,
+        state === "vowel" ? 0.1 : 0.2
+      );
+    });
+  });
   const [bobTime, setBobTime] = useState(0);
 
   // Parpadeo aleatorio

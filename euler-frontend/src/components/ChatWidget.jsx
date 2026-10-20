@@ -81,6 +81,9 @@ export const ChatWidget = () => {
   };
 
   const sendMessage = async () => {
+    if (lipsyncManager.audioContext?.state === "suspended") {
+      lipsyncManager.audioContext.resume();
+    }
     const text = inputValue.trim();
     if (!text || isLoading) return;
 
@@ -89,6 +92,10 @@ export const ChatWidget = () => {
     setMessages(newMessages);
     setInputValue("");
     setIsLoading(true);
+    const assistantMsgIndex = newMessages.length;
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+    let accumulatedText = "";
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -97,7 +104,7 @@ export const ChatWidget = () => {
     let llegoRespuesta = false;
 
     try {
-      const response = await fetch(`${API_BASE}/chat`, {
+      const response = await fetch(`${API_BASE}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: newMessages }),
@@ -117,6 +124,9 @@ export const ChatWidget = () => {
         return;
       }
 
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
       const data = await response.json();
       const assistantMessage = data.messages?.at(-1);
 
@@ -131,31 +141,99 @@ export const ChatWidget = () => {
 
       setMessages((prev) => [...prev, assistantMessage]);
 
-      if (data.audio_url) {
-        let audioReady = false;
-        let attempts = 0;
-        const maxAttempts = 240;
-        const pollInterval = setInterval(async () => {
-          if (audioReady || attempts >= maxAttempts) {
-            clearInterval(pollInterval);
-            return;
-          }
-          try {
-            const audioRes = await fetch(`${API_BASE}${data.audio_url}`);
-            if (audioRes.ok) {
-              audioReady = true;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+
+      const processEvent = (event, data) => {
+        if (event === "text" && data) {
+          accumulatedText += data;
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[assistantMsgIndex] = {
+              role: "assistant",
+              content: accumulatedText,
+            };
+            return updated;
+          });
+        } else if (event === "audio" && data) {
+          let audioReady = false;
+          let attempts = 0;
+          const maxAttempts = 240;
+          const pollInterval = setInterval(async () => {
+            if (audioReady || attempts >= maxAttempts) {
               clearInterval(pollInterval);
-              playAudio(`${API_BASE}${data.audio_url}`);
-            } else {
+              return;
+            }
+            try {
+              const audioRes = await fetch(`${API_BASE}${data}`);
+              if (audioRes.ok) {
+                audioReady = true;
+                clearInterval(pollInterval);
+                playAudio(`${API_BASE}${data}`);
+              } else {
+                attempts++;
+              }
+            } catch {
               attempts++;
             }
-          } catch {
-            attempts++;
+          }, 500);
+        } else if (event === "done") {
+          setIsLoading(false);
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        let currentEvent = null;
+        let currentData = null;
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data:")) {
+            currentData = line.slice(6).trimEnd();
+          } else if (line === "") {
+            processEvent(currentEvent, currentData);
+            currentEvent = null;
+            currentData = null;
           }
-        }, 500);
+        }
       }
+
+      if (buffer.trim()) {
+        const remainingLines = buffer.split("\n");
+        let currentEvent = null;
+        let currentData = null;
+        for (const line of remainingLines) {
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data:")) {
+            currentData = line.slice(6).trimEnd();
+          } else if (line === "") {
+            processEvent(currentEvent, currentData);
+            currentEvent = null;
+            currentData = null;
+          }
+        }
+      }
+
     } catch (error) {
       console.error("Chat error:", error);
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[assistantMsgIndex] = {
+          role: "assistant",
+          content: "Error al conectar con el servidor.",
+        };
+        return updated;
+      });
 
       // `AbortError` con esta forma solo lo dispara nuestro `setTimeout`, o sea
       // que es un timeout. Si llego la respuesta pero algo fallo despues, el
@@ -220,7 +298,7 @@ export const ChatWidget = () => {
 
   return (
     <>
-      <audio ref={audioRef} className="hidden" />
+      <audio ref={audioRef} className="hidden" crossOrigin="anonymous" />
 
        {isOpen && (
          <div className="animate-pop-in fixed z-50 flex flex-col overflow-hidden border border-gray-200/70 bg-white shadow-2xl bottom-0 right-0 h-[100dvh] w-full rounded-none sm:bottom-24 sm:right-6 sm:h-[min(36rem,calc(100dvh-8rem))] sm:w-[min(22rem,calc(100vw-3rem))] sm:rounded-2xl">
