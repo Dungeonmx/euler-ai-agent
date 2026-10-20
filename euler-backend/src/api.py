@@ -28,8 +28,42 @@ from storage.postgresql.session import async_session
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
-FRONTEND_DIST_DIR = REPO_ROOT / "euler-frontend" / "dist"
-FRONTEND_DIST_DIR.mkdir(parents=True, exist_ok=True)
+
+# Directorio con el build del widget que se sirve en /euler/js. Por defecto
+# apunta al dist del frontend (carpeta hermana de euler-backend/). En produccion
+# se puede sobreescribir con FRONTEND_DIST_DIR.
+DEFAULT_FRONTEND_DIST_DIR = REPO_ROOT.parent / "euler-frontend" / "dist"
+FRONTEND_DIST_DIR = Path(
+    os.getenv("FRONTEND_DIST_DIR", str(DEFAULT_FRONTEND_DIST_DIR))
+).expanduser().resolve()
+
+WIDGET_REQUIRED_FILES = ("iniciar.js", "euler-chat.js")
+
+
+def _check_frontend_dist() -> None:
+    """Valida el directorio del widget antes de montarlo.
+
+    StaticFiles exige que el directorio exista al inicializar, asi que si falta
+    se crea vacio. Si no estan los archivos clave del snippet se avisa por log,
+    para que el 404 de /euler/js no sea un fallo silencioso.
+    """
+    if not FRONTEND_DIST_DIR.is_dir():
+        logger.warning(
+            f"No existe el directorio del widget ({FRONTEND_DIST_DIR}); se crea vacio. "
+            f"/euler/js devolvera 404."
+        )
+        FRONTEND_DIST_DIR.mkdir(parents=True, exist_ok=True)
+
+    faltantes = [f for f in WIDGET_REQUIRED_FILES if not (FRONTEND_DIST_DIR / f).is_file()]
+    if faltantes:
+        logger.warning(
+            f"Widget incompleto en {FRONTEND_DIST_DIR}: faltan {faltantes}. "
+            f"/euler/js devolvera 404. Construi el frontend (bun/npm run build) "
+            f"o defini FRONTEND_DIST_DIR."
+        )
+
+
+_check_frontend_dist()
 
 app = FastAPI(title="Euler AI Agent API", version="1.0.0")
 

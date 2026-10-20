@@ -333,6 +333,27 @@ pagar 11 MB siempre y pagarlos solo si se usa.
 
 3. Listo. No hay que tocar el HTML de ningún sitio que ya tenga el snippet.
 
+### Variante: servir el widget desde la propia API
+
+No es obligatorio subirlo al servidor de la facultad. El backend monta el build del
+widget en `/euler/js` (carpeta configurable con `FRONTEND_DIST_DIR`), así que el snippet
+también puede apuntar a la API:
+
+```html
+<script src="https://api.ing.unlpam.edu.ar/euler/js/iniciar.js"
+        data-api="https://api.ing.unlpam.edu.ar"></script>
+```
+
+- Sirve `iniciar.js`, `euler-chat.js`, `models/` e `images/` desde el mismo origen que la
+  API, tomándolos del dist del frontend.
+- Si la página anfitriona y la API **comparten origen**, `data-api` puede omitirse.
+- Si son **dominios distintos** (por ejemplo, la página en `www.ing.unlpam.edu.ar` y la
+  API en `api.ing.unlpam.edu.ar`), `data-api` es **obligatorio**: si se omite, el `fetch`
+  de `/chat/stream` se resuelve contra el dominio de la página y da 404.
+- `FRONTEND_DIST_DIR` permite apuntar a otra carpeta en producción. Si el directorio no
+  existe o le faltan los archivos del widget, el backend arranca igual, pero loguea un
+  `warning` y `/euler/js` devuelve 404.
+
 ---
 
 ## 10. Diagnóstico rápido
