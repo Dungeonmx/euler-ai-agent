@@ -23,7 +23,37 @@ import { Experience } from "./Experience";
   incrustar en cualquier sitio, no se pueden usar las utilidades de gradiente
   de Tailwind. Si alguna vez se actualiza Tailwind, hay que volver a probar esto.
 */
-const AVATAR_SRC = assetUrl("images/wawasensei.png");
+const AVATAR_SRC = assetUrl("images/robot.svg");
+
+/*
+  Avisos para cuando algo falla.
+
+  Van escritos para una persona que abrio un chat de la facultad, no para un
+  log: a nadie le sirve ver "HTTP 500" o "Failed to fetch". Se distinguen tres
+  casos porque son tres situaciones distintas desde el lado del visitante:
+
+    AVISO_TIMEOUT   el sistema esta lento, es transitorio y el usuario no hizo
+                    nada mal.
+    AVISO_SERVIDOR  fallo de nuestro lado; no vamos a mostrarle el detalle.
+    AVISO_CONEXION  probablemente su internet, algo que si puede revisar.
+
+  El detalle tecnico igual se consola con `console.error`, para depurar sin
+  ensuciar la conversacion.
+*/
+const AVISO_TIMEOUT =
+  "Perdón, estoy tardando demasiado en pensar esto. Ya estoy trabajando para solucionarlo, probá de nuevo en un momento.";
+const AVISO_SERVIDOR =
+  "Uy, algo falló de mi lado. Ya lo estoy revisando. Probá de nuevo en un ratito.";
+const AVISO_CONEXION =
+  "No pude conectarme. Revisá tu conexión a internet y probá de nuevo.";
+
+/*
+  Si el backend no contesta en este tiempo, el front corta la peticion el mismo
+  modo en que lo haria el usuario. Sin esto, si el LLM se cuelga, los tres
+  puntitos quedan girando para siempre y el input se queda bloqueado: no hay
+  forma de recuperarse sin recargar la pagina.
+*/
+const TIMEOUT_MS = 50000;
 
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(consumeOpenRequest);
@@ -67,16 +97,49 @@ export const ChatWidget = () => {
 
     let accumulatedText = "";
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    // Para poder elegir el aviso despues: si llego la respuesta pero venia mal,
+    // el problema no fue la conexion.
+    let llegoRespuesta = false;
+
     try {
       const response = await fetch(`${API_BASE}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: newMessages }),
+        signal: controller.signal,
       });
+      llegoRespuesta = true;
+
+      // Un 500 (o cualquier otro codigo distinto de 2xx) no se muestra: se
+      // responde con el aviso amable. Antes se intentaba hacer `response.json()`
+      // igual, y el cuerpo de un error no suele ser JSON, asi que terminaba
+      // cayendo en el `catch` y mostrando "Error al conectar con el servidor".
+      if (!response.ok) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: AVISO_SERVIDOR },
+        ]);
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
+      const data = await response.json();
+      const assistantMessage = data.messages?.at(-1);
+
+      // 200 pero sin mensaje: mismo trato que un error del servidor.
+      if (!assistantMessage) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: AVISO_SERVIDOR },
+        ]);
+        return;
+      }
+
+      setMessages((prev) => [...prev, assistantMessage]);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -171,6 +234,20 @@ export const ChatWidget = () => {
         };
         return updated;
       });
+
+      // `AbortError` con esta forma solo lo dispara nuestro `setTimeout`, o sea
+      // que es un timeout. Si llego la respuesta pero algo fallo despues, el
+      // problema fue del servidor; si no llego nada, de la conexion.
+      const porTiempo = error?.name === "AbortError";
+      const aviso = porTiempo
+        ? AVISO_TIMEOUT
+        : llegoRespuesta
+          ? AVISO_SERVIDOR
+          : AVISO_CONEXION;
+
+      setMessages((prev) => [...prev, { role: "assistant", content: aviso }]);
+    } finally {
+      clearTimeout(timer);
       setIsLoading(false);
     }
   };
@@ -223,8 +300,8 @@ export const ChatWidget = () => {
     <>
       <audio ref={audioRef} className="hidden" crossOrigin="anonymous" />
 
-      {isOpen && (
-        <div className="animate-pop-in fixed bottom-24 right-6 z-50 flex h-[min(36rem,calc(100dvh-8rem))] w-[min(22rem,calc(100vw-3rem))] flex-col overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-2xl">
+       {isOpen && (
+         <div className="animate-pop-in fixed z-50 flex flex-col overflow-hidden border border-gray-200/70 bg-white shadow-2xl bottom-0 right-0 h-[100dvh] w-full rounded-none sm:bottom-24 sm:right-6 sm:h-[min(36rem,calc(100dvh-8rem))] sm:w-[min(22rem,calc(100vw-3rem))] sm:rounded-2xl">
           <header className="flex items-center gap-3 bg-[linear-gradient(to_right,#6366f1,#ec4899)] px-4 py-3">
             <img
               src={AVATAR_SRC}
@@ -249,15 +326,12 @@ export const ChatWidget = () => {
             </button>
           </header>
 
-          <div className="relative h-40 bg-[linear-gradient(to_bottom,#6366f1,#ec4899)]">
-            <Canvas
-              shadows
-              camera={{ position: [0.1, 1.7, 1.2], fov: 45 }}
-            >
-              <Suspense>
-                <Experience />
-              </Suspense>
-            </Canvas>
+          <div className="relative h-40 bg-[radial-gradient(circle_at_top,#a78bfa,#6366f1_55%,#4f46e5)] flex items-center justify-center">
+            <img
+              src={AVATAR_SRC}
+              alt="Avatar de Euler"
+              className="h-36 w-36 drop-shadow-[0_6px_16px_rgba(15,23,42,0.25)]"
+            />
           </div>
 
           <div

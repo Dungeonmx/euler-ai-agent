@@ -111,13 +111,13 @@ Acá está el bug más importante, y el más fácil de no ver.
 Si el avatar estuviera escrito así:
 
 ```js
-<img src="images/wawasensei.png" />                       // MAL
+<img src="images/robot.svg" />                            // MAL
 const modelo = useGLTF("models/64f1a714fe61576b46f27ca2.glb");  // MAL
 ```
 
 esas rutas son **relativas**, así que el navegador las resuelve contra la URL de la
 **página anfitriona**, no contra el servidor del widget. En la página de la veterinaria
-iría a pedir `/images/wawasensei.png` a su propio servidor, daría 404, y el avatar
+iría a pedir `/images/robot.svg` a su propio servidor, daría 404, y el avatar
 3D no aparecería nunca.
 
 Por eso todos los assets pasan por `assetUrl()` (`src/config.js`), que los convierte en
@@ -166,75 +166,104 @@ EulerChat.open();   // abre el panel (cargando el widget si hace falta)
 
 ## 6. Cómo se trabaja con los cambios
 
-### Levantar todo para probar (3 terminales)
+Hay **dos escenarios distintos**, y cada uno necesita levantar un número distinto de
+servidores. Esto es lo que más confunde, así que conviene tenerlo claro de una vez.
+
+### Escenario A — cambiar cosas (lo que se usa el 99% del tiempo)
+
+**Dos terminales:**
 
 ```bash
-# 1 — Backend (solo si tocás algo del LLM o del TTS)
+# Terminal 1 — Backend
 cd ~/Dev/euler-ai-agent/euler-backend
-source .venv/bin/activate && python src/main.py          # http://localhost:8000
+python src/main.py                                          # http://localhost:8000
 
-# 2 — Widget compilado y servido
+# Terminal 2 — Frontend
 cd ~/Dev/euler-ai-agent/euler-frontend
-npm run build && npm run preview                          # http://localhost:4173
-
-# 3 — La "página de la facultad" de mentira
-cd ~/Dev/pagina-gatitos
-python3 -m http.server 5174                              # http://localhost:5174
+npm run dev                                                 # http://localhost:5173
 ```
 
-Abrís `http://localhost:5174` y te aparece el botón abajo a la derecha.
+Abrís **`http://localhost:5173`**.
 
-### El ciclo de trabajo
+Aparece el botón flotante abajo a la derecha, igual que en producción, porque el
+`index.html` de desarrollo carga el **mismo** `iniciar.js` que usa cualquier sitio
+externo. Podés abrir el chat, cerrarlo y volver a abrirlo.
 
-Cada vez que hacés un cambio visual:
+Acá tenés **HMR**: editás un archivo, guardás, y el navegador se actualiza solo. No hay
+que recompilar nada. El proxy de Vite le manda los mensajes al backend en el 8000, así
+que **el chat responde**.
 
-1. Editás el archivo que corresponda (ver la tabla de la sección 7).
-2. `npm run build`
-3. Recargás el navegador
+Es lo que hay que usar para cambiar colores, tamaños, textos, animaciones o el botón.
 
-**No hay HMR.** `npm run preview` sirve `dist/` estático, así que hay que recompilar y
-recargar. No es una molestia: el build tarda ~3 segundos y es exactamente el mismo ciclo
-que va a tener la página de la facultad.
+### Escenario B — verlo embebido en una página ajena
 
-### Los tres servidores y qué se ve en cada uno
+**Tres terminales**, porque estás simulando tres servidores reales:
 
-Esto confunde la primera vez, así que conviene tenerlo claro:
+```bash
+# Terminal 1 — Backend
+cd ~/Dev/euler-ai-agent/euler-backend
+python src/main.py                                          # http://localhost:8000
 
-| Puerto | Qué es | Qué se ve |
-|---|---|---|
-| **4173** | `vite preview`, sirve `dist/`. | **Nada. Da 404.** Ver abajo. |
-| **5173** | `vite dev`, con HMR y proxy a `/chat`. | El chatbot solo, con el panel abierto. |
-| **5174** | La página de la veterinaria con el snippet. | La veterinaria **con el chatbot abajo a la derecha**. |
+# Terminal 2 — Los archivos del widget
+cd ~/Dev/euler-ai-agent/euler-frontend
+npm run build && npm run preview                            # http://localhost:4173
+
+# Terminal 3 — La página que lo incrusta
+cd ~/Dev/pagina-gatitos
+python3 -m http.server 5174                                # http://localhost:5174
+```
+
+Abrís **`http://localhost:5174`**.
+
+> **Importante:** `pagina-gatitos` **no contiene el chatbot**. Es un HTML con una sola
+> línea relevante:
+>
+> ```html
+> <script src="http://localhost:4173/iniciar.js" data-api="http://localhost:8000"></script>
+> ```
+>
+> Pide `iniciar.js` al **4173**. Si el terminal 2 no está levantado, ese script da 404,
+> no se dibuja el botón y no aparece **nada** — el sitio se ve normal, sin ningún error
+> que te avise. Es el síntoma más común y el más confuso: **falta el `npm run preview`**.
+
+Si vas a iterar sobre el build, el ciclo es: editás → `npm run build` → recargás. Son ~3
+segundos, y es exactamente el mismo ciclo que va a tener la página de la facultad.
+
+### La tabla de puertos
+
+| Puerto | Quién lo levanta | Qué sirve | Qué se ve |
+|---|---|---|---|
+| **8000** | `python src/main.py` | La API del chat. | Nada navegable; es solo la API. |
+| **4173** | `npm run preview` | `dist/`: `iniciar.js`, `euler-chat.js`, `models/`, `images/`. | **Nada. Da 404.** Ver abajo. |
+| **5173** | `npm run dev` | El widget solo, con HMR. | El chatbot suelto, con su botón. |
+| **5174** | `http.server` en `pagina-gatitos` | La página de la veterinaria. | La veterinaria **con el chatbot abajo a la derecha**. |
 
 **¿Por qué `localhost:4173` da 404?**
 
-Porque `dist/` **no tiene ningún `index.html`**. Y no es un olvido: en modo librería,
-Vite no emite ninguno, justamente porque el widget no es una página.
+Porque `dist/` **no tiene ningún `index.html`**. No es un olvido: en modo librería Vite
+no emite ninguno, justamente porque el widget no es una página.
 
 `dist/` contiene `euler-chat.js`, `iniciar.js`, `models/` e `images/`. Son **archivos**,
-no páginas. Pedir `/` es pedir un `index.html` que no existe, y por eso da 404. Ese
-servidor es el equivalente local de donde se van a subir los archivos en el servidor de
-la facultad: no se navega, se lo referencia desde el `<script>`.
+no páginas. Pedir `/` es pedir un `index.html` que no existe. Ese servidor es el
+equivalente local de la carpeta a la que se van a subir los archivos: no se navega, se lo
+referencia desde el `<script>`.
 
-**¿Por qué a veces `localhost:5173` dice que no se puede acceder?**
+**¿Por qué `localhost:5173` a veces dice que no se puede acceder?**
 
-Porque el servidor de desarrollo no está corriendo. Si lo levantás con `npm run dev`, sí
-funciona y muestra el chatbot solo (con el panel abierto automáticamente, gracias a una
-marca que `index.html` pone solo en desarrollo).
+Porque el `npm run dev` no está corriendo. Es todo.
 
-Ojo con un detalle: **`npm run dev` y `npm run preview` no pueden estar corriendo al
-mismo tiempo.** Si los levantás juntos, Vite puede correrse de puerto y `localhost:5174`
-termina apuntando al servidor equivocado — parece que el widget no funciona, pero es una
-conflación de puertos.
+### Nota sobre los puertos
 
-### ¿Cuál uso para qué?
+`npm run dev` (5173) y `npm run preview` (4173) **sí pueden correr al mismo tiempo**: van
+a puertos distintos.
 
-- **`npm run dev` (5173)** → para escribir código. HMR, recarga instantánea, el proxy
-  tapa el tema de CORS. No reproduce la realidad: el widget se sirve desde la raíz de
-  Vite, no desde una carpeta de archivos.
-- **`npm run build` + `npm run preview` (4173)** → para verificar. Es el ciclo real.
-- **`pagina-gatitos` (5174)** → la prueba de fuego. Es la única que reproduce de verdad
-  "un sitio externo con el snippet".
+Lo que no pueden es **competir por el mismo puerto**. Por eso ambos tienen
+`strictPort: true` en `vite.config.js`: si el puerto pedido está ocupado, Vite **falla
+ruidosamente** en vez de correrse silenciosamente a otro. Sin eso, Vite se quedaba con
+puertos prestados (por ejemplo, agarraba el 5174 de `pagina-gatitos`) y de golpe
+`localhost:5174` te servía la app de desarrollo en vez de la veterinaria — y parecía que
+el widget estaba roto, cuando era una colisión de puertos.
+
 
 ---
 
@@ -249,7 +278,13 @@ nunca**: cuando actualizás el `dist/` en el servidor, todas las páginas que ya
 | Colores, tamaños, posición, textos del **panel** | `src/components/ChatWidget.jsx` |
 | El **botón flotante** | `public/iniciar.js` — está en CSS plano, en la variable `CSS`, arriba del archivo |
 | Animaciones, tipografía | `src/index.css` |
-| La imagen del avatar del botón | `public/images/wawasensei.png` |
+| El avatar de Euler (robotito) | `public/images/robot.svg` |
+
+El avatar es **un solo archivo SVG** compartido por el botón flotante y por el header del
+panel. Lleva sus propias animaciones declaradas adentro —parpadeo, balanceo y latido de
+las antenas—, así que andan igual dentro del Shadow DOM del botón que dentro del panel en
+React. Al ir cargado con `<img>`, un SVG no puede tocar el CSS ni el DOM de la página de
+afuera, que es justo el aislamiento que se quiere.
 
 ---
 
@@ -366,8 +401,9 @@ también puede apuntar a la API:
 | El panel abre pero no responde el chat | CORS. Mirá la consola: si dice *blocked by CORS policy*, falta `CORS_ORIGINS` en el backend. |
 | Los colores del panel se ven raros | CSS de la página invadiendo al widget, o al revés. Debería ser imposible por el Shadow DOM: revisá que `mount.jsx` siga montando en shadow y no en el DOM normal. |
 | Faltan los degradados | Ver 8.1. |
-| `localhost:4173` da 404 | Es normal. Ese servidor no tiene páginas, solo archivos. Ver sección 6. |
-| `localhost:5174` muestra la página equivocada | Conflicto de puertos entre `dev` y `preview`. Ver sección 6. |
+| `localhost:4173` da 404 | Es normal: ese servidor no tiene páginas, solo archivos. Ver sección 6. |
+| En `localhost:5174` no aparece el botón y la página se ve normal | Falta el terminal 2 (`npm run build && npm run preview`). El `<script>` del snippet le pide `iniciar.js` al 4173, y sin ese servidor da 404 silencioso. |
+| `localhost:5173` dice que no se puede acceder | Falta el terminal 2 (`npm run dev`). |
 
 ---
 

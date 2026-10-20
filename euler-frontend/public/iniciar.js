@@ -66,6 +66,14 @@
 
   function loadWidget() {
     if (document.getElementById(WIDGET_ID)) return;
+    if (window.__EULER_CHAT_MOUNTED__) return;
+
+    // En `npm run dev` no hay `dist/euler-chat.js` en disco: el server de
+    // desarrollo trae el widget transformado desde `/src/main.jsx`. Sin este
+    // guard, abrir el chat antes de que termine de montar pediria un archivo
+    // inexistente.
+    if (window.__EULER_CHAT_DEV__) return;
+
     var script = document.createElement("script");
     script.id = WIDGET_ID;
     script.src = base + "euler-chat.js";
@@ -76,8 +84,11 @@
   /*
     CSS del boton, a mano. Va dentro del shadow root, asi que no le afecta el
     CSS de la pagina ni al reves. Equivale a las clases de Tailwind que usaba
-    antes en ChatWidget.jsx; si se cambia el diseno, se cambia aca y en el
-    atributo `src` de la imagen de mas abajo.
+    antes en ChatWidget.jsx; si se cambia el diseno del boton, se cambia aca.
+
+    El avatar es `images/robot.svg`, un SVG con sus propias animaciones
+    (parpadeo, balanceo, latido de las antenas) declaradas adentro del archivo,
+    asi que andan igual dentro de este Shadow DOM que dentro del panel.
   */
   var CSS = [
     ":host{all:initial;display:block}",
@@ -115,7 +126,7 @@
     button.setAttribute("aria-label", "Abrir el chat de Euler");
 
     var img = document.createElement("img");
-    img.src = base + "images/wawasensei.png";
+    img.src = base + "images/robot.svg";
     img.alt = "";
     button.appendChild(img);
 
