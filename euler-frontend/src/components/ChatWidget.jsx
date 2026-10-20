@@ -248,15 +248,12 @@ export const ChatWidget = () => {
             </button>
           </header>
 
-          <div className="relative h-40 bg-[linear-gradient(to_bottom,#6366f1,#ec4899)]">
-            <Canvas
-              shadows
-              camera={{ position: [0.1, 1.7, 1.2], fov: 45 }}
-            >
-              <Suspense>
-                <Experience />
-              </Suspense>
-            </Canvas>
+          <div className="relative h-40 bg-[radial-gradient(circle_at_top,#a78bfa,#6366f1_55%,#4f46e5)] flex items-center justify-center">
+            <img
+              src={AVATAR_SRC}
+              alt="Avatar de Euler"
+              className="h-36 w-36 drop-shadow-[0_6px_16px_rgba(15,23,42,0.25)]"
+            />
           </div>
 
           <div
