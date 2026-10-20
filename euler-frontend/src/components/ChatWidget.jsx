@@ -53,7 +53,7 @@ const AVISO_CONEXION =
   puntitos quedan girando para siempre y el input se queda bloqueado: no hay
   forma de recuperarse sin recargar la pagina.
 */
-const TIMEOUT_MS = 10000;
+const TIMEOUT_MS = 50000;
 
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(consumeOpenRequest);
