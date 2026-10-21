@@ -1,8 +1,6 @@
-import { Canvas } from "@react-three/fiber";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { lipsyncManager } from "../App";
 import { API_BASE, assetUrl, consumeOpenRequest, onOpenRequest } from "../config";
-import { Experience } from "./Experience";
 
 /*
   El panel de chat. El boton flotante NO se dibuja aca: lo dibuja
@@ -112,41 +110,34 @@ export const ChatWidget = () => {
       });
       llegoRespuesta = true;
 
-      // Un 500 (o cualquier otro codigo distinto de 2xx) no se muestra: se
-      // responde con el aviso amable. Antes se intentaba hacer `response.json()`
-      // igual, y el cuerpo de un error no suele ser JSON, asi que terminaba
-      // cayendo en el `catch` y mostrando "Error al conectar con el servidor".
+      // /chat/stream responde text/event-stream, no JSON. Parsear el cuerpo con
+      // response.json() consume el stream entero y falla con "Unexpected
+      // character at line 1", porque el cuerpo empieza con "event:".
       if (!response.ok) {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: AVISO_SERVIDOR },
-        ]);
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[assistantMsgIndex] = {
+            role: "assistant",
+            content: AVISO_SERVIDOR,
+          };
+          return updated;
+        });
         return;
       }
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      const data = await response.json();
-      const assistantMessage = data.messages?.at(-1);
-
-      // 200 pero sin mensaje: mismo trato que un error del servidor.
-      if (!assistantMessage) {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: AVISO_SERVIDOR },
-        ]);
-        return;
-      }
-
-      setMessages((prev) => [...prev, assistantMessage]);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
 
-      const processEvent = (event, data) => {
-        if (event === "text" && data) {
+      // El estado del SSE (evento y datos) tiene que sobrevivir entre chunks:
+      // un evento puede quedar partido entre dos lecturas del reader.
+      let currentEvent = null;
+      let currentData = [];
+
+      const processEvent = () => {
+        const data = currentData.join("\n");
+
+        if (currentEvent === "text" && data) {
           accumulatedText += data;
           setMessages((prev) => {
             const updated = [...prev];
@@ -156,31 +147,62 @@ export const ChatWidget = () => {
             };
             return updated;
           });
-        } else if (event === "audio" && data) {
-          let audioReady = false;
-          let attempts = 0;
-          const maxAttempts = 240;
-          const pollInterval = setInterval(async () => {
-            if (audioReady || attempts >= maxAttempts) {
-              clearInterval(pollInterval);
-              return;
-            }
-            try {
-              const audioRes = await fetch(`${API_BASE}${data}`);
-              if (audioRes.ok) {
-                audioReady = true;
-                clearInterval(pollInterval);
-                playAudio(`${API_BASE}${data}`);
-              } else {
-                attempts++;
-              }
-            } catch {
-              attempts++;
-            }
-          }, 500);
-        } else if (event === "done") {
+        } else if (currentEvent === "final_text" && data) {
+          // El backend manda el mensaje final del LLM, que tiene los espacios
+          // correctos. Reemplaza lo acumulado por tokens sin agregar otro globo.
+          accumulatedText = data;
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[assistantMsgIndex] = {
+              role: "assistant",
+              content: accumulatedText,
+            };
+            return updated;
+          });
+          // El texto ya esta completo: el tiempo restante es solo el TTS.
+          // No abortar la conexion mientras se genera el audio.
+          clearTimeout(timer);
+        } else if (currentEvent === "audio" && data) {
+          // El backend emite `audio` recien despues de escribir el archivo,
+          // asi que no hace falta hacer polling.
+          playAudio(`${API_BASE}${data.trim()}`);
+        } else if (currentEvent === "error") {
+          console.error("El backend reporto un error en el stream");
+          // Si ya hay texto, no borrarlo por un fallo de audio.
+          if (!accumulatedText) {
+            setMessages((prev) => {
+              const updated = [...prev];
+              updated[assistantMsgIndex] = {
+                role: "assistant",
+                content: AVISO_SERVIDOR,
+              };
+              return updated;
+            });
+          }
+        } else if (currentEvent === "done") {
           setIsLoading(false);
         }
+
+        currentEvent = null;
+        currentData = [];
+      };
+
+      const handleLine = (rawLine) => {
+        if (rawLine.endsWith("\r")) rawLine = rawLine.slice(0, -1);
+
+        if (rawLine === "") {
+          processEvent();
+          return;
+        }
+        if (rawLine.startsWith(":")) return;
+
+        const colon = rawLine.indexOf(":");
+        const field = colon === -1 ? rawLine : rawLine.slice(0, colon);
+        let fieldValue = colon === -1 ? "" : rawLine.slice(colon + 1);
+        if (fieldValue.startsWith(" ")) fieldValue = fieldValue.slice(1);
+
+        if (field === "event") currentEvent = fieldValue;
+        else if (field === "data") currentData.push(fieldValue);
       };
 
       while (true) {
@@ -191,49 +213,15 @@ export const ChatWidget = () => {
         const lines = buffer.split("\n");
         buffer = lines.pop();
 
-        let currentEvent = null;
-        let currentData = null;
-
-        for (const line of lines) {
-          if (line.startsWith("event:")) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith("data:")) {
-            currentData = line.slice(6).trimEnd();
-          } else if (line === "") {
-            processEvent(currentEvent, currentData);
-            currentEvent = null;
-            currentData = null;
-          }
-        }
+        for (const line of lines) handleLine(line);
       }
 
-      if (buffer.trim()) {
-        const remainingLines = buffer.split("\n");
-        let currentEvent = null;
-        let currentData = null;
-        for (const line of remainingLines) {
-          if (line.startsWith("event:")) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith("data:")) {
-            currentData = line.slice(6).trimEnd();
-          } else if (line === "") {
-            processEvent(currentEvent, currentData);
-            currentEvent = null;
-            currentData = null;
-          }
-        }
-      }
+      // Si el backend cierra sin la linea en blanco final, no perder el evento.
+      if (buffer) handleLine(buffer);
+      if (currentData.length > 0) processEvent();
 
     } catch (error) {
       console.error("Chat error:", error);
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[assistantMsgIndex] = {
-          role: "assistant",
-          content: "Error al conectar con el servidor.",
-        };
-        return updated;
-      });
 
       // `AbortError` con esta forma solo lo dispara nuestro `setTimeout`, o sea
       // que es un timeout. Si llego la respuesta pero algo fallo despues, el
@@ -245,7 +233,15 @@ export const ChatWidget = () => {
           ? AVISO_SERVIDOR
           : AVISO_CONEXION;
 
-      setMessages((prev) => [...prev, { role: "assistant", content: aviso }]);
+      // Si ya llego texto (por ejemplo, fallo solo el audio), no borrarlo.
+      if (!accumulatedText) {
+        // Reemplaza el placeholder; no agrega una segunda burbuja de asistente.
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[assistantMsgIndex] = { role: "assistant", content: aviso };
+          return updated;
+        });
+      }
     } finally {
       clearTimeout(timer);
       setIsLoading(false);
