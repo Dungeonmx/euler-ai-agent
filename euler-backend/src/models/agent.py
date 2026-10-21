@@ -18,6 +18,19 @@ SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / ".." / "audios" / "generated"
 
+
+def _sse_event(event: str, data: object = "") -> str:
+    """Serializa un evento SSE preservando los saltos de linea.
+
+    En SSE, cada linea de un mismo evento va prefijada con ``data: `` y el
+    cliente las vuelve a unir con ``\\n``. Sin esto, un token que contiene un
+    salto de linea corta el evento y el resto del texto se pierde.
+    """
+    lines = str(data).split("\n")
+    payload = "\n".join(f"data: {line}" for line in lines)
+    return f"event: {event}\n{payload}\n\n"
+
+
 class Agent:
 
     def __init__(self) -> None:
@@ -76,7 +89,7 @@ class Agent:
                         and not getattr(token, "tool_call_chunks", None)
                     ):
                         full_text_stream += token.content
-                        raw = f"event: text\ndata: {token.content}\n\n"
+                        raw = _sse_event("text", token.content)
                         yield ("text", token.content, raw)
 
 
@@ -90,13 +103,16 @@ class Agent:
                                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                                     for tc in msg.tool_calls:
                                         logger.debug(f"Tool usada: {tc['name']} | Params: {json.dumps(tc['args'])}")
-                                        raw = f"event: tool_call\ndata: {json.dumps({'tool_name': tc['name'], 'input': tc['args']})}\n\n"
+                                        raw = _sse_event(
+                                            "tool_call",
+                                            json.dumps({"tool_name": tc["name"], "input": tc["args"]}),
+                                        )
                                         yield ("tool_call", tc, raw)
                         elif source == "tools":
                             for msg in update.get("messages", []):
                                 if hasattr(msg, "content") and msg.content:
                                     logger.debug(f"Respuesta de tool {msg.content[:200]}")
-                                    raw = f"event: tool_output\ndata: {msg.content}\n\n"
+                                    raw = _sse_event("tool_output", msg.content)
                                     yield ("tool_output", msg.content, raw)
 
             # Usar el texto final del LLM para TTS (tiene espacios correctos)
@@ -106,29 +122,37 @@ class Agent:
             logger.debug(f"full_text_final (mensaje LLM): {full_text_final!r}")
             logger.debug(f"Texto usado para TTS: {tts_text!r}")
 
-            audio_filename = generate_audio_filename("wav")
+            # Reemplaza en el cliente el texto acumulado por tokens. Los chunks
+            # del stream pueden perder espacios; el mensaje final no.
+            if tts_text:
+                yield ("final_text", tts_text, _sse_event("final_text", tts_text))
+
+            response_format = os.getenv("TTS_RESPONSE_FORMAT", "wav")
+            audio_filename = generate_audio_filename(response_format)
             output_path = GENERATED_AUDIO_DIR / audio_filename
             try:
-                synthesize_text(tts_text, output_path)
+                # requests.post es sincrono: si se llamara directo bloquearia el
+                # event loop y el evento final_text no llegaria hasta terminar TTS.
+                await asyncio.to_thread(synthesize_text, tts_text, output_path)
             except Exception as e:
                 logger.error(f"Error en TTS: {e}")
-                raw = f"event: error\ndata: {json.dumps({'detail': 'Error generating audio'})}\n\n"
+                raw = _sse_event("error", json.dumps({"detail": "Error generating audio"}))
                 yield ("error", {"detail": "Error generating audio"}, raw)
-                yield ("done", "", "event: done\ndata: \n\n")
+                yield ("done", "", _sse_event("done"))
                 return
 
             audio_url = f"/audio/{audio_filename}"
-            yield ("audio", audio_url, f"event: audio\ndata: {audio_url}\n\n")
+            yield ("audio", audio_url, _sse_event("audio", audio_url))
 
-            yield ("done", "", "event: done\ndata: \n\n")
+            yield ("done", "", _sse_event("done"))
 
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"Error en agent: {e}")
-            raw = f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
+            raw = _sse_event("error", json.dumps({"detail": str(e)}))
             yield ("error", {"detail": str(e)}, raw)
-            yield ("done", "", "event: done\ndata: \n\n")
+            yield ("done", "", _sse_event("done"))
 
     def invoke(self, messages: list[SystemMessage], conversation_id: int = None):
         config = {"configurable": {"thread_id": str(conversation_id) if conversation_id else str(uuid7())}}

@@ -160,6 +160,9 @@ async def chat_stream(request: ChatRequest):
                     await event_queue.put(event_raw)
                     if event_type == "text":
                         full_text += event_data
+                    elif event_type == "final_text":
+                        # El mensaje final del LLM tiene los espacios correctos.
+                        full_text = event_data
                     elif event_type == "audio":
                         audio_filename = event_data.strip()
             except asyncio.CancelledError:
@@ -172,18 +175,22 @@ async def chat_stream(request: ChatRequest):
         async def commit_after_agent():
             """Commit despues de que el agente termina (independiente del streaming)."""
             await agent_done.wait()
-            if full_text:
-                try:
-                    await repo.update_with_response(conversation_id, {
+            try:
+                if full_text:
+                    assistant_message = {
                         "role": "assistant",
                         "content": full_text,
-                        "audio": f"/audio/{audio_filename}"
-                    })
+                    }
+                    # Si el TTS fallo no hay audio; no guardar "/audio/None".
+                    if audio_filename:
+                        assistant_message["audio"] = f"/audio/{audio_filename}"
+                    await repo.update_with_response(conversation_id, assistant_message)
                     await session.commit()
-                except Exception as e:
-                    logger.error(f"Error committing response: {e}")
-                finally:
-                    await session.close()
+            except Exception as e:
+                logger.error(f"Error committing response: {e}")
+            finally:
+                # Se cierra siempre, incluso si no hubo texto que guardar.
+                await session.close()
 
         # Lanzar tareas en background
         asyncio.create_task(agent_worker())
@@ -233,7 +240,8 @@ async def chat(request: ChatRequest):
         messages = _process_request(request)
 
         try:
-            result = agent.invoke(messages, conversation_id)
+            # invoke es sincrono y puede tardar; no bloquear el event loop.
+            result = await asyncio.to_thread(agent.invoke, messages, conversation_id)
         except Exception as e:
             logger.error(f"Error en agent: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -259,7 +267,7 @@ async def chat(request: ChatRequest):
 
         async def run_tts():
             try:
-                synthesize_text(assistant_response, output_path)
+                await asyncio.to_thread(synthesize_text, assistant_response, output_path)
             except Exception as e:
                 logger.error(f"Error en TTS: {e}")
 
