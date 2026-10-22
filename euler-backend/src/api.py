@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import mimetypes
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,19 +12,27 @@ from models.message import Message
 load_dotenv()
 
 import asyncio
-from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from models.agent import Agent, SYSTEM_PROMPT
+from models.agent import Agent
 from models.chatRequest import ChatRequest
-from models.conversation import Conversation
 from models.logger import logger
+from models.prompt import build_llm_messages
+from models.sse import sse_event
 from models.tts import generate_audio_filename, synthesize_text
 from repositories.conversation import ConversationRepository
 from schemas.conversation import ChatResponse, ConversationList, ConversationRead
+from services.chat import (
+    ConversationNotFound,
+    assistant_message,
+    persist_answer,
+    prepare_turn,
+    prewarm_canned_audio,
+    resolve_answer,
+    stream_answer,
+)
 from storage.postgresql.session import async_session
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -64,7 +74,16 @@ def _check_frontend_dist() -> None:
 
 _check_frontend_dist()
 
-app = FastAPI(title="Euler AI Agent API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Pre-generar los audios de rechazo deja el primer rechazo en milisegundos.
+    # Se lanza como tarea para no bloquear el arranque si el TTS está caído.
+    asyncio.create_task(prewarm_canned_audio())
+    yield
+
+
+app = FastAPI(title="Euler AI Agent API", version="1.0.0", lifespan=lifespan)
 
 app.mount("/euler/js", StaticFiles(directory=str(FRONTEND_DIST_DIR)), name="euler_js")
 
@@ -114,47 +133,46 @@ async def get_conversation_repo():
         raise
 
 
-def _process_request(request: ChatRequest):
-    messages = [SystemMessage(content=SYSTEM_PROMPT)]
-    for msg in request.messages:
-        if msg.role in ("user", "human"):
-            messages.append(HumanMessage(content=msg.content))
-            logger.debug(f"Consulta del usuario: {msg.content}")
-        elif msg.role == "assistant":
-            messages.append(AIMessage(content=msg.content))
-
-    return messages
-
-
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     repo, session = await get_conversation_repo()
+
+    # Si el turno llega al agente, la sesión pasa a `commit_after_agent`. Cualquier
+    # salida anterior (rechazo, caché, error) tiene que cerrarla acá.
+    session_handed_off = False
+
     try:
-        conversation_id = request.conversation_id
-        user_message = request.messages[-1].model_dump() if request.messages else None
+        try:
+            turn = await prepare_turn(request, repo, session)
+        except ConversationNotFound:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
-        if conversation_id:
-            conversation = await repo.append_user_message(conversation_id, user_message)
-            if not conversation:
-                raise HTTPException(status_code=404, detail="Conversation not found")
-            await session.commit()
-        else:
-            conversation = await repo.create_conversation([m.model_dump() for m in request.messages])
-            conversation_id = conversation.id
-            await session.commit()
+        conversation_id = turn.conversation_id
 
-        messages = _process_request(request)
+        if turn.is_answer:
+            message = await resolve_answer(turn.verdict)
+            await persist_answer(repo, session, conversation_id, message)
+            logger.info(
+                f"Respuesta sin LLM ({turn.verdict.reason}) | conv={conversation_id}"
+            )
+            return StreamingResponse(
+                stream_answer(conversation_id, message),
+                media_type="text/event-stream",
+            )
+
+        messages = build_llm_messages(turn.history)
 
         event_queue: asyncio.Queue = asyncio.Queue()
         agent_done = asyncio.Event()
         full_text = ""
         audio_filename = None
+        had_llm_error = False
 
         async def agent_worker():
             """Ejecuta el agente en segundo plano, emite eventos al queue y recolecta datos."""
-            nonlocal full_text, audio_filename
+            nonlocal full_text, audio_filename, had_llm_error
             try:
-                await event_queue.put(f"event: conversation_id\ndata: {conversation_id}\n\n")
+                await event_queue.put(sse_event("conversation_id", conversation_id))
                 async for event_type, event_data, event_raw in agent.event_generator(messages, conversation_id):
                     await event_queue.put(event_raw)
                     if event_type == "text":
@@ -163,11 +181,17 @@ async def chat_stream(request: ChatRequest):
                         # El mensaje final del LLM tiene los espacios correctos.
                         full_text = event_data
                     elif event_type == "audio":
-                        audio_filename = event_data.strip()
+                        # event_data es "/audio/x.wav"; guardamos solo el nombre
+                        # para no duplicar el prefijo al persistir.
+                        audio_filename = str(event_data).strip().rsplit("/", 1)[-1]
+                    elif event_type == "error":
+                        # Falla del LLM o de conexión: la respuesta no se reutiliza.
+                        had_llm_error = True
             except asyncio.CancelledError:
                 logger.info("Agent worker cancelled")
             except Exception as e:
                 logger.error(f"Error en agent worker: {e}")
+                had_llm_error = True
             finally:
                 agent_done.set()
 
@@ -176,14 +200,13 @@ async def chat_stream(request: ChatRequest):
             await agent_done.wait()
             try:
                 if full_text:
-                    assistant_message = {
-                        "role": "assistant",
-                        "content": full_text,
-                    }
-                    # Si el TTS fallo no hay audio; no guardar "/audio/None".
-                    if audio_filename:
-                        assistant_message["audio"] = f"/audio/{audio_filename}"
-                    await repo.update_with_response(conversation_id, assistant_message)
+                    message = assistant_message(
+                        full_text,
+                        audio_filename,
+                        source="llm",
+                        cacheable=not had_llm_error,
+                    )
+                    await repo.update_with_response(conversation_id, message)
                     await session.commit()
             except Exception as e:
                 logger.error(f"Error committing response: {e}")
@@ -194,6 +217,7 @@ async def chat_stream(request: ChatRequest):
         # Lanzar tareas en background
         asyncio.create_task(agent_worker())
         asyncio.create_task(commit_after_agent())
+        session_handed_off = True
 
         async def event_stream():
             """Stream de eventos desde el queue hasta que el agente termina."""
@@ -217,26 +241,38 @@ async def chat_stream(request: ChatRequest):
     except Exception as e:
         logger.error(f"Error en stream: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if not session_handed_off:
+            await session.close()
 
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     repo, session = await get_conversation_repo()
     try:
-        conversation_id = request.conversation_id
-        user_message = request.messages[-1].model_dump() if request.messages else None
+        try:
+            turn = await prepare_turn(request, repo, session)
+        except ConversationNotFound:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
-        if conversation_id:
-            conversation = await repo.append_user_message(conversation_id, user_message)
-            if not conversation:
-                raise HTTPException(status_code=404, detail="Conversation not found")
-            await session.commit()
-        else:
-            conversation = await repo.create_conversation([m.model_dump() for m in request.messages])
-            conversation_id = conversation.id
-            await session.commit()
+        conversation_id = turn.conversation_id
 
-        messages = _process_request(request)
+        if turn.is_answer:
+            message = await resolve_answer(turn.verdict)
+            await persist_answer(repo, session, conversation_id, message)
+            logger.info(
+                f"Respuesta sin LLM ({turn.verdict.reason}) | conv={conversation_id}"
+            )
+            all_messages = list(request.messages) + [
+                Message(role="assistant", content=message["content"])
+            ]
+            return ChatResponse(
+                messages=[m.model_dump() for m in all_messages],
+                audio_url=message.get("audio", ""),
+                conversation_id=conversation_id,
+            )
+
+        messages = build_llm_messages(turn.history)
 
         try:
             # invoke es sincrono y puede tardar; no bloquear el event loop.
@@ -255,10 +291,14 @@ async def chat(request: ChatRequest):
         audio_filename = generate_audio_filename(response_format)
         output_path = GENERATED_AUDIO_DIR / audio_filename
 
-        assistant_msg = {"role": "assistant", "content": assistant_response, "audio": f"/audio/{audio_filename}"}
-        await repo.update_with_response(conversation_id, assistant_msg)
+        message = assistant_message(
+            assistant_response,
+            audio_filename,
+            source="llm",
+            cacheable=True,
+        )
         try:
-            await session.commit()
+            await persist_answer(repo, session, conversation_id, message)
         except Exception as e:
             logger.error(f"Error al commit de la respuesta: {e}")
             await session.rollback()
@@ -352,11 +392,14 @@ async def delete_all_conversations():
 
 @app.get("/audio/{filename}")
 async def get_audio(filename: str):
-    file_path = GENERATED_AUDIO_DIR / filename
-    if not file_path.exists():
+    # Path(...).name descarta cualquier intento de salir del directorio.
+    safe_name = Path(filename).name
+    file_path = GENERATED_AUDIO_DIR / safe_name
+    if not safe_name or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Audio file not found")
+    media_type = mimetypes.guess_type(safe_name)[0] or "audio/wav"
     return FileResponse(
         path=str(file_path),
-        media_type="audio/wav",
-        filename=filename,
+        media_type=media_type,
+        filename=safe_name,
     )

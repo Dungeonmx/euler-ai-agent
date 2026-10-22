@@ -4,44 +4,18 @@ import os
 from pathlib import Path
 
 from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.utils.uuid import uuid7
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_openai import ChatOpenAI
-from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import SecretStr
 from models.tools import get_carreras, get_recent_news
 
+from .llm_debug import LLMPayloadLogger
 from .logger import logger
+from .sse import sse_event as _sse_event
 from .tts import generate_audio_filename, synthesize_text
-
-SYSTEM_PROMPT_BASE = os.getenv("SYSTEM_PROMPT")
-
-# El texto del LLM se muestra en el widget. El frontend lo escapa y lo sanea
-# antes de pintarlo, pero mejor que el modelo no devuelva HTML: se lo pide
-# explicitamente. Es la primera linea de defensa, no la unica.
-SYSTEM_PROMPT_SUFFIX = (
-    " Output plain text only: never output HTML tags, scripts, code blocks or any "
-    "other markup. If the user asks for HTML or code, describe it in words instead."
-)
-
-SYSTEM_PROMPT = (
-    f"{SYSTEM_PROMPT_BASE}{SYSTEM_PROMPT_SUFFIX}" if SYSTEM_PROMPT_BASE else SYSTEM_PROMPT_BASE
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / ".." / "audios" / "generated"
-
-
-def _sse_event(event: str, data: object = "") -> str:
-    """Serializa un evento SSE preservando los saltos de linea.
-
-    En SSE, cada linea de un mismo evento va prefijada con ``data: `` y el
-    cliente las vuelve a unir con ``\\n``. Sin esto, un token que contiene un
-    salto de linea corta el evento y el resto del texto se pierde.
-    """
-    lines = str(data).split("\n")
-    payload = "\n".join(f"data: {line}" for line in lines)
-    return f"event: {event}\n{payload}\n\n"
 
 
 class Agent:
@@ -50,41 +24,52 @@ class Agent:
 
         thinking_enabled = os.getenv("LLM_THINKING_ENABLED", "false").lower() in ("true", "1", "yes")
 
+        model_kwargs = {}
+        if thinking_enabled:
+            # ``chat_template_kwargs`` es específico de llama.cpp / Qwen. Con
+            # vLLM y Gemma no se envía para no romper la plantilla del modelo.
+            model_kwargs["extra_body"] = {
+                "chat_template_kwargs": {"enable_thinking": True}
+            }
+
         self.llm = ChatOpenAI(
             model = str(os.getenv("LLM_MODEL")),
             temperature = float(str(os.getenv("LLM_TEMPERATURE"))),
             base_url = str(os.getenv("LLM_BASE_URL")),
             api_key = SecretStr(str(os.getenv("LLM_API_KEY"))),
             default_headers = {"User-Agent": "python-httpx/0.28.1"},
-            model_kwargs={
-                "extra_body": {
-                    "chat_template_kwargs": {"enable_thinking": thinking_enabled}
-                }
-            }
+            model_kwargs=model_kwargs,
         )
 
         self.tools = [get_recent_news, get_carreras]
 
-        self.agent_executor = create_agent(
-            self.llm,
-            tools=self.tools,
-            system_prompt=SYSTEM_PROMPT,
-            checkpointer=InMemorySaver(),
-        )
+        # Sin checkpointer ni system_prompt: el historial y el prompt los arma
+        # ``models.prompt.build_llm_messages`` a partir de Postgres. Una sola
+        # fuente de verdad evita duplicados y secuencias inválidas para vLLM.
+        self.agent_executor = create_agent(self.llm, tools=self.tools)
 
-    async def event_generator(self, messages: list[SystemMessage], conversation_id: int = None):
+    def _config(self, conversation_id: int | None) -> dict:
+        """Config con el log del payload del LLM (no hay estado persistido)."""
+        return {
+            "callbacks": [
+                LLMPayloadLogger(
+                    conversation_id=conversation_id,
+                    model=getattr(self.llm, "model_name", None)
+                    or getattr(self.llm, "model", None),
+                    tools=[tool.name for tool in self.tools],
+                )
+            ],
+        }
+
+    async def event_generator(self, messages: list[BaseMessage], conversation_id: int = None):
         # full_text_stream: concatenación de tokens SSE (puede tener palabras pegadas)
         # full_text_final: texto completo del mensaje final del LLM (correcto para TTS)
         full_text_stream = ""
         full_text_final = ""
 
-        config = {"configurable": {"thread_id": str(conversation_id) if conversation_id else str(uuid7())}}
+        config = self._config(conversation_id)
 
         try:
-            for msg in messages:
-                if isinstance(msg, HumanMessage):
-                    logger.debug(f"Consulta del usuario: {msg.content}")
-
             async for chunk in self.agent_executor.astream(
                 {"messages": messages},
                 config=config,
@@ -150,7 +135,10 @@ class Agent:
             except Exception as e:
                 logger.error(f"Error en TTS: {e}")
                 raw = _sse_event("error", json.dumps({"detail": "Error generating audio"}))
-                yield ("error", {"detail": "Error generating audio"}, raw)
+                # El texto es válido: la respuesta se puede reutilizar aunque
+                # falte el audio. Por eso el tipo interno es "audio_error" y no
+                # "error" (que marca un fallo del LLM).
+                yield ("audio_error", {"detail": "Error generating audio"}, raw)
                 yield ("done", "", _sse_event("done"))
                 return
 
@@ -167,6 +155,6 @@ class Agent:
             yield ("error", {"detail": str(e)}, raw)
             yield ("done", "", _sse_event("done"))
 
-    def invoke(self, messages: list[SystemMessage], conversation_id: int = None):
-        config = {"configurable": {"thread_id": str(conversation_id) if conversation_id else str(uuid7())}}
+    def invoke(self, messages: list[BaseMessage], conversation_id: int = None):
+        config = self._config(conversation_id)
         return self.agent_executor.invoke({"messages": messages}, config=config)

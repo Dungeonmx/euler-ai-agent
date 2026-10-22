@@ -9,7 +9,7 @@ import requests
 
 from .logger import logger
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
 
 
