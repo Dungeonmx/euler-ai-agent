@@ -62,7 +62,11 @@
   window.EULER_CHAT_BASE = base;
 
   var OPEN_EVENT = "euler:chat:open";
+  var CLOSE_EVENT = "euler:chat:close";
   var READY_EVENT = "euler:chat:ready";
+  var STATE_EVENT = "euler:chat:state";
+  var OPEN_FLAG = "__EULER_CHAT_OPEN_REQUESTED__";
+  var OPEN_STATE_FLAG = "__EULER_CHAT_OPEN__";
 
   function loadWidget() {
     if (document.getElementById(WIDGET_ID)) return;
@@ -89,18 +93,28 @@
     El avatar es `images/robot.svg`, un SVG con sus propias animaciones
     (parpadeo, balanceo, latido de las antenas) declaradas adentro del archivo,
     asi que andan igual dentro de este Shadow DOM que dentro del panel.
+
+    Sobre el contraste: el boton flota sobre una pagina que no controlamos, y
+    puede ser enteramente blanca. El aro blanco de afuera (el `0 0 0 5px`) es
+    lo que lo separaba del fondo, pero en una pagina blanca ese aro no separa
+    nada: el boton queda pegado. Por eso el aro blanco va acompañado de una
+    linea oscura de 1px, que si se ve contra cualquier fondo claro.
   */
   var CSS = [
     ":host{all:initial;display:block}",
     "button{all:unset;box-sizing:border-box;position:fixed;right:1.5rem;bottom:1.5rem;",
     "width:3rem;height:3rem;border-radius:9999px;cursor:pointer;",
-    "background:linear-gradient(to bottom right,#6366f1,#ec4899);",
-    "box-shadow:0 0 0 4px rgba(255,255,255,.8),0 10px 15px -3px rgba(0,0,0,.1),",
-    "0 4px 6px -4px rgba(0,0,0,.1);",
-    "transition:transform .15s ease}",
+    "background:linear-gradient(to bottom right,#4f46e5,#db2777);",
+    "box-shadow:0 0 0 1px rgba(15,23,42,.18),0 0 0 5px rgba(255,255,255,.9),",
+    "0 12px 20px -6px rgba(15,23,42,.35);",
+    "transition:transform .15s ease,box-shadow .15s ease}",
     "button:hover{transform:scale(1.05)}",
-    "button:focus-visible{outline:2px solid #6366f1;outline-offset:2px}",
+    "button:focus-visible{outline:2px solid #4f46e5;outline-offset:2px}",
     "button[data-loading=true]{transform:none;cursor:progress}",
+    // Con el chat abierto el boton sirve para cerrarlo, asi que se achica un
+    // poco: se nota que esta en otro estado.
+    "button[data-open=true]{transform:scale(.92)}",
+    "button[data-open=true]:hover{transform:scale(.96)}",
     "img{display:block;width:100%;height:100%;border-radius:9999px;object-fit:cover}",
     "i{position:absolute;right:-2px;top:-2px;width:12px;height:12px;",
     "border-radius:9999px;border:2px solid #fff;background:#4ade80}",
@@ -112,8 +126,13 @@
     host.id = HOST_ID;
 
     // Estilos inline: ganan contra cualquier selector de la pagina anfitriona.
+    //
+    // El z-index va un punto por encima del del widget (`src/mount.jsx`), para
+    // que el boton quede siempre por arriba del panel: si esta abierto, se lo
+    // puede tocar para cerrarlo, y no quedaria tapado por el panel a pantalla
+    // completa.
     host.style.cssText =
-      "all:initial;position:fixed;left:0;top:0;width:0;height:0;z-index:2147483000";
+      "all:initial;position:fixed;left:0;top:0;width:0;height:0;z-index:2147483001";
 
     var shadow = host.attachShadow({ mode: "open" });
 
@@ -124,6 +143,7 @@
     var button = document.createElement("button");
     button.type = "button";
     button.setAttribute("aria-label", "Abrir el chat de Euler");
+    button.setAttribute("data-open", "false");
 
     var img = document.createElement("img");
     img.src = base + "images/robot.svg";
@@ -139,10 +159,26 @@
       button.setAttribute("aria-busy", state ? "true" : "false");
     }
 
+    /*
+      Si el chat esta abierto, el boton lo cierra; si esta cerrado, lo abre.
+      El estado vive en `window` porque el panel esta en otro bundle (React) y
+      no hay forma de preguntarle directamente: el widget lo avisa con el
+      evento `STATE_EVENT`.
+    */
+    function setOpenState(isOpen) {
+      window[OPEN_STATE_FLAG] = isOpen;
+      button.setAttribute("data-open", isOpen ? "true" : "false");
+      button.setAttribute(
+        "aria-label",
+        isOpen ? "Cerrar el chat de Euler" : "Abrir el chat de Euler"
+      );
+    }
+
     function open() {
       // Se marca antes de inyectar, para que el widget arranque con el panel
       // ya abierto en vez de aparecer el boton y un instante despues el panel.
-      window.__EULER_CHAT_OPEN_REQUESTED__ = true;
+      window[OPEN_FLAG] = true;
+      setOpenState(true);
       window.dispatchEvent(new Event(OPEN_EVENT));
 
       if (window.__EULER_CHAT_MOUNTED__) return;
@@ -151,12 +187,34 @@
       loadWidget();
     }
 
+    function close() {
+      setOpenState(false);
+      window.dispatchEvent(new Event(CLOSE_EVENT));
+    }
+
+    function toggle() {
+      // Mientras el widget no termino de montar no hay nada que cerrar: el
+      // panel todavia no existe.
+      if (window.__EULER_CHAT_MOUNTED__ && window[OPEN_STATE_FLAG] === true) {
+        close();
+        return;
+      }
+      open();
+    }
+
+    // El widget avisa como va el panel, para que el boton sepa si el proximo
+    // click tiene que abrirlo o cerrarlo.
+    window.addEventListener(STATE_EVENT, function (event) {
+      var isOpen = !!(event && event.detail && event.detail.isOpen);
+      setOpenState(isOpen);
+    });
+
     // Si el widget termino de montar, el boton vuelve a su estado normal.
     window.addEventListener(READY_EVENT, function () {
       setLoading(false);
     });
 
-    button.addEventListener("click", open);
+    button.addEventListener("click", toggle);
 
     shadow.appendChild(button);
     (document.body || document.documentElement).appendChild(host);
@@ -169,8 +227,20 @@
   // propio sin mostrar el flotante).
   window.EulerChat = window.EulerChat || {};
   window.EulerChat.open = function () {
-    window.__EULER_CHAT_OPEN_REQUESTED__ = true;
+    window[OPEN_FLAG] = true;
+    window[OPEN_STATE_FLAG] = true;
     window.dispatchEvent(new Event(OPEN_EVENT));
     loadWidget();
+  };
+  window.EulerChat.close = function () {
+    window[OPEN_STATE_FLAG] = false;
+    window.dispatchEvent(new Event(CLOSE_EVENT));
+  };
+  window.EulerChat.toggle = function () {
+    if (window[OPEN_STATE_FLAG] === true) {
+      window.EulerChat.close();
+      return;
+    }
+    window.EulerChat.open();
   };
 })();

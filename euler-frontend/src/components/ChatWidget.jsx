@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { lipsyncManager } from "../App";
-import { API_BASE, assetUrl, consumeOpenRequest, onOpenRequest } from "../config";
+import {
+  API_BASE,
+  announceOpenState,
+  assetUrl,
+  clearOpenRequest,
+  consumeOpenRequest,
+  onCloseRequest,
+  onOpenRequest,
+} from "../config";
 
 /*
   El panel de chat. El boton flotante NO se dibuja aca: lo dibuja
@@ -20,6 +28,11 @@ import { API_BASE, assetUrl, consumeOpenRequest, onOpenRequest } from "../config
   Como el Shadow DOM es justamente lo que hace que el widget se pueda
   incrustar en cualquier sitio, no se pueden usar las utilidades de gradiente
   de Tailwind. Si alguna vez se actualiza Tailwind, hay que volver a probar esto.
+
+  Lo mismo pasa con las sombras de Tailwind (`shadow-sm`, `shadow-2xl`): se
+  apilan sobre variables que arrancan con valores iniciales de `@property`, que
+  no se aplican en un shadow tree, y el `box-shadow` computa en `none`. Por eso
+  las sombras van en clases propias, escritas a mano, en `src/index.css`.
 */
 const AVATAR_SRC = assetUrl("images/robot.svg");
 
@@ -50,8 +63,14 @@ const AVISO_CONEXION =
   modo en que lo haria el usuario. Sin esto, si el LLM se cuelga, los tres
   puntitos quedan girando para siempre y el input se queda bloqueado: no hay
   forma de recuperarse sin recargar la pagina.
+
+  1:30 minuto. Antes eran 50 segundos, y con el LLM pensando en una consulta
+  larga (o con el backend momentaneamente lento) se cortaba antes de que
+  llegara la respuesta. El timer se cancela en cuanto llega el texto final
+  (`final_text`), asi que el tiempo extra solo se paga cuando realmente hay que
+  esperar: mientras se esta generando el audio no cuenta.
 */
-const TIMEOUT_MS = 50000;
+const TIMEOUT_MS = 90 * 1000;
 
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(consumeOpenRequest);
@@ -67,9 +86,26 @@ export const ChatWidget = () => {
     }
   }, [messages, isLoading]);
 
+  // La marca de "abrir" ya se leyo: se limpia, asi de acá en adelante el
+  // snippet tiene que avisar con el evento para abrir el panel.
+  useEffect(() => {
+    clearOpenRequest();
+  }, []);
+
   // Si el widget ya esta en memoria y el snippet (o el sitio) pide abrirlo, se
   // abre al instante sin volver a descargarlo.
   useEffect(() => onOpenRequest(() => setIsOpen(true)), []);
+
+  // Al reves: el snippet (o el sitio) puede pedir cerrar el panel.
+  useEffect(() => onCloseRequest(() => setIsOpen(false)), []);
+
+  // El boton flotante vive en otro bundle (`public/iniciar.js`) y no comparte
+  // memoria con este. Le avisamos si el panel esta abierto para que su click
+  // sirva de las dos cosas: abrir cuando esta cerrado, cerrar cuando esta
+  // abierto.
+  useEffect(() => {
+    announceOpenState(isOpen);
+  }, [isOpen]);
 
   const playAudio = (audioUrl) => {
     if (!audioRef.current) return;
@@ -297,118 +333,124 @@ export const ChatWidget = () => {
       <audio ref={audioRef} className="hidden" crossOrigin="anonymous" />
 
        {isOpen && (
-         <div className="animate-pop-in fixed z-50 flex flex-col overflow-hidden border border-gray-200/70 bg-white shadow-2xl bottom-0 right-0 h-[100dvh] w-full rounded-none sm:bottom-24 sm:right-6 sm:h-[min(36rem,calc(100dvh-8rem))] sm:w-[min(22rem,calc(100vw-3rem))] sm:rounded-2xl">
-          <header className="flex items-center gap-3 bg-[linear-gradient(to_right,#6366f1,#ec4899)] px-4 py-3">
-            <img
-              src={AVATAR_SRC}
-              alt="Avatar de Euler"
-              className="h-9 w-9 rounded-full border-2 border-white/80 object-cover shadow"
-            />
-            <div className="flex-1">
-              <h2 className="text-sm font-semibold leading-tight text-white">
-                Euler
-              </h2>
-              <p className="flex items-center gap-1.5 text-xs text-white/80">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-300" />
-                En línea
-              </p>
-            </div>
-            <button
-              className="flex h-8 w-8 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/20 cursor-pointer"
-              aria-label="Cerrar chat"
-              onClick={() => setIsOpen(false)}
-            >
-              {closeIcon}
-            </button>
-          </header>
+         /*
+           En mobile el panel no llega al borde inferior de la pantalla: deja
+           una franja de 6rem para el boton flotante. Si el panel la tapara, el
+           boton quedaria debajo y no habria forma de cerrar el chat tocando
+           el logo (que es lo mismo que hace la cruz).
+         */
+         <div className="animate-pop-in fixed z-50 flex flex-col overflow-hidden border border-gray-300 bg-white shadow-panel bottom-24 right-0 h-[calc(100dvh-6rem)] w-full rounded-2xl sm:bottom-24 sm:right-6 sm:h-[min(36rem,calc(100dvh-8rem))] sm:w-[min(22rem,calc(100vw-3rem))] sm:rounded-2xl">
+           <header className="flex items-center gap-3 bg-[linear-gradient(to_right,#4f46e5,#db2777)] px-4 py-3">
+             <img
+               src={AVATAR_SRC}
+               alt="Avatar de Euler"
+               className="h-9 w-9 rounded-full border-2 border-white object-cover shadow-bubble"
+             />
+             <div className="flex-1">
+               <h2 className="text-sm font-semibold leading-tight text-white">
+                 Euler
+               </h2>
+               <p className="flex items-center gap-1.5 text-xs text-white/90">
+                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-200" />
+                 En línea
+               </p>
+             </div>
+             <button
+               className="flex h-8 w-8 items-center justify-center rounded-full text-white transition-colors hover:bg-white/25 cursor-pointer"
+               aria-label="Cerrar chat"
+               onClick={() => setIsOpen(false)}
+             >
+               {closeIcon}
+             </button>
+           </header>
 
-          <div className="relative h-40 bg-[radial-gradient(circle_at_top,#a78bfa,#6366f1_55%,#4f46e5)] flex items-center justify-center">
-            <img
-              src={AVATAR_SRC}
-              alt="Avatar de Euler"
-              className="h-36 w-36 drop-shadow-[0_6px_16px_rgba(15,23,42,0.25)]"
-            />
-          </div>
+           <div className="relative h-40 bg-[radial-gradient(circle_at_top,#8b5cf6,#6366f1_55%,#4f46e5)] flex items-center justify-center">
+             <img
+               src={AVATAR_SRC}
+               alt="Avatar de Euler"
+               className="h-36 w-36 drop-shadow-[0_6px_16px_rgba(15,23,42,0.25)]"
+             />
+           </div>
 
-          <div
-            ref={scrollRef}
-            className="flex-1 space-y-2.5 overflow-y-auto bg-gray-50 px-3 py-3"
-          >
-            {messages.length === 0 && (
-              <div className="flex flex-col items-center gap-1.5 pt-6 text-center">
-                <p className="text-sm text-gray-500">
-                  ¡Hola! Soy Euler, tu asistente virtual.
-                </p>
-                <p className="text-xs text-gray-400">
-                  Escribe un mensaje para comenzar.
-                </p>
-              </div>
-            )}
-            {messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`flex ${
-                  msg.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-2xl px-3 py-2 text-[13px] leading-snug whitespace-pre-wrap ${
-                    msg.role === "user"
-                      ? "rounded-br-md bg-[linear-gradient(to_right,#6366f1,#8b5cf6)] text-white shadow-sm"
-                      : "rounded-bl-md border border-gray-200 bg-white text-gray-800 shadow-sm"
-                  }`}
-                >
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-            {isLoading && (
-              <div className="flex items-center justify-start gap-1 py-1">
-                <span className="flex items-center gap-1 rounded-full bg-white px-3 py-2.5 shadow-sm">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:0ms]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:150ms]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:300ms]" />
-                </span>
-              </div>
-            )}
-          </div>
+           <div
+             ref={scrollRef}
+             className="flex-1 space-y-2.5 overflow-y-auto bg-gray-100 px-3 py-3"
+           >
+             {messages.length === 0 && (
+               <div className="flex flex-col items-center gap-1.5 pt-6 text-center">
+                 <p className="text-sm text-gray-600">
+                   ¡Hola! Soy Euler, tu asistente virtual.
+                 </p>
+                 <p className="text-xs text-gray-500">
+                   Escribe un mensaje para comenzar.
+                 </p>
+               </div>
+             )}
+             {messages.map((msg, index) => (
+               <div
+                 key={index}
+                 className={`flex ${
+                   msg.role === "user" ? "justify-end" : "justify-start"
+                 }`}
+               >
+                 <div
+                   className={`max-w-[80%] rounded-2xl px-3 py-2 text-[13px] leading-snug whitespace-pre-wrap ${
+                     msg.role === "user"
+                       ? "rounded-br-md bg-[linear-gradient(to_right,#4f46e5,#7c3aed)] text-white shadow-bubble"
+                       : "rounded-bl-md border border-gray-300 bg-white text-gray-800 shadow-bubble"
+                   }`}
+                 >
+                   {msg.content}
+                 </div>
+               </div>
+             ))}
+             {isLoading && (
+               <div className="flex items-center justify-start gap-1 py-1">
+                 <span className="flex items-center gap-1 rounded-full bg-white px-3 py-2.5 shadow-bubble">
+                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-500 [animation-delay:0ms]" />
+                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-500 [animation-delay:150ms]" />
+                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-500 [animation-delay:300ms]" />
+                 </span>
+               </div>
+             )}
+           </div>
 
-          <div className="border-t border-gray-200 bg-white px-3 py-3">
-            <form
-              className="flex items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                sendMessage();
-              }}
-            >
-              <button
-                type="button"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 cursor-pointer"
-                aria-label="Borrar conversación"
-                onClick={clearChat}
-              >
-                {trashIcon}
-              </button>
-              <input
-                type="text"
-                className="h-9 min-w-0 flex-1 rounded-full border border-gray-200 bg-gray-100 px-4 text-sm text-gray-900 placeholder-gray-400"
-                placeholder="Escribe tu mensaje..."
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                disabled={isLoading}
-              />
-              <button
-                type="submit"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(to_right,#6366f1,#8b5cf6)] text-white shadow transition-transform hover:scale-105 disabled:opacity-50 cursor-pointer"
-                aria-label="Enviar mensaje"
-                disabled={isLoading || !inputValue.trim()}
-              >
-                {sendIcon}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+           <div className="border-t border-gray-300 bg-white px-3 py-3">
+             <form
+               className="flex items-center gap-2"
+               onSubmit={(e) => {
+                 e.preventDefault();
+                 sendMessage();
+               }}
+             >
+               <button
+                 type="button"
+                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-800 cursor-pointer"
+                 aria-label="Borrar conversación"
+                 onClick={clearChat}
+               >
+                 {trashIcon}
+               </button>
+               <input
+                 type="text"
+                 className="h-9 min-w-0 flex-1 rounded-full border border-gray-300 bg-gray-100 px-4 text-sm text-gray-900 placeholder-gray-500"
+                 placeholder="Escribe tu mensaje..."
+                 value={inputValue}
+                 onChange={(e) => setInputValue(e.target.value)}
+                 disabled={isLoading}
+               />
+               <button
+                 type="submit"
+                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(to_right,#4f46e5,#7c3aed)] text-white shadow-float transition-transform hover:scale-105 disabled:opacity-50 cursor-pointer"
+                 aria-label="Enviar mensaje"
+                 disabled={isLoading || !inputValue.trim()}
+               >
+                 {sendIcon}
+               </button>
+             </form>
+           </div>
+         </div>
+       )}
     </>
   );
 };
