@@ -14,7 +14,20 @@ from models.tools import get_carreras, get_recent_news
 from .logger import logger
 from .tts import generate_audio_filename, synthesize_text
 
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
+SYSTEM_PROMPT_BASE = os.getenv("SYSTEM_PROMPT")
+
+# El texto del LLM se muestra en el widget. El frontend lo escapa y lo sanea
+# antes de pintarlo, pero mejor que el modelo no devuelva HTML: se lo pide
+# explicitamente. Es la primera linea de defensa, no la unica.
+SYSTEM_PROMPT_SUFFIX = (
+    " Output plain text only: never output HTML tags, scripts, code blocks or any "
+    "other markup. If the user asks for HTML or code, describe it in words instead."
+)
+
+SYSTEM_PROMPT = (
+    f"{SYSTEM_PROMPT_BASE}{SYSTEM_PROMPT_SUFFIX}" if SYSTEM_PROMPT_BASE else SYSTEM_PROMPT_BASE
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / ".." / "audios" / "generated"
 

@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from models.agent import Agent
+from models.agent import Agent, SYSTEM_PROMPT
 from models.chatRequest import ChatRequest
 from models.conversation import Conversation
 from models.logger import logger
@@ -25,7 +25,6 @@ from repositories.conversation import ConversationRepository
 from schemas.conversation import ChatResponse, ConversationList, ConversationRead
 from storage.postgresql.session import async_session
 
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_AUDIO_DIR = REPO_ROOT / "audios" / "generated"
 

@@ -9,6 +9,8 @@ import {
   onCloseRequest,
   onOpenRequest,
 } from "../config";
+import { CopyButton } from "./CopyButton";
+import { RichText, plainText } from "./RichText";
 
 /*
   El panel de chat. El boton flotante NO se dibuja aca: lo dibuja
@@ -72,11 +74,50 @@ const AVISO_CONEXION =
 */
 const TIMEOUT_MS = 90 * 1000;
 
+/*
+  El panel no se muestra hasta que esta TODO listo.
+
+  Antes pasaba esto: en el primer render se veía el texto del panel y recien
+  despues arrancaba la animacion de entrada. Ademas las tipografias se
+  descargan aparte, asi que el texto tambien podia aparecer un instante con la
+  tipografia del sistema y saltar recien despues a Inter.
+
+  La solucion es la de siempre: primero se pinta invisible, y cuando todo esta
+  listo (fuentes cargadas, un frame pintado) se le da play a la animacion. El
+  "show" es ese momento.
+*/
+const siguienteFrame = () =>
+  new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+const esperarFuentes = async () => {
+  if (!document.fonts) return;
+
+  const carga = (async () => {
+    try {
+      // `load` pide la fuente aunque todavia no se este usando; `ready` espera
+      // a que terminen de cargar todas.
+      await document.fonts.load('400 1rem "Inter"');
+      await document.fonts.load('600 1rem "Inter"');
+      await document.fonts.ready;
+    } catch (error) {
+      // Si las fuentes no se pueden cargar, el chat abre igual.
+    }
+  })();
+
+  // Techo: si el servidor de fuentes no contesta, el chat tiene que abrir
+  // igual. Mejor mostrarlo con la tipografia del sistema que no mostrarlo.
+  await Promise.race([
+    carga,
+    new Promise((resolve) => setTimeout(resolve, 1500)),
+  ]);
+};
+
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(consumeOpenRequest);
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isReady, setIsReady] = useState(false);
   const scrollRef = useRef(null);
   const audioRef = useRef(null);
 
@@ -105,6 +146,32 @@ export const ChatWidget = () => {
   // abierto.
   useEffect(() => {
     announceOpenState(isOpen);
+  }, [isOpen]);
+
+  // El "show": se espera a que las fuentes esten y a que el navegador haya
+  // pintado el panel invisible, y recien ahi se le da play a la animacion.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let cancelado = false;
+
+    const mostrar = async () => {
+      // Un frame para que el navegador pinte el panel (todavia invisible) y
+      // pida las fuentes.
+      await siguienteFrame();
+      await esperarFuentes();
+      // Dos frames mas: el ultimo arranca la animacion desde el principio.
+      await siguienteFrame();
+      await siguienteFrame();
+
+      if (!cancelado) setIsReady(true);
+    };
+
+    mostrar();
+
+    return () => {
+      cancelado = true;
+    };
   }, [isOpen]);
 
   const playAudio = (audioUrl) => {
@@ -328,6 +395,35 @@ export const ChatWidget = () => {
     </svg>
   );
 
+  const copyIcon = (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+    >
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+
+  const checkIcon = (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+
   return (
     <>
       <audio ref={audioRef} className="hidden" crossOrigin="anonymous" />
@@ -338,8 +434,13 @@ export const ChatWidget = () => {
            una franja de 6rem para el boton flotante. Si el panel la tapara, el
            boton quedaria debajo y no habria forma de cerrar el chat tocando
            el logo (que es lo mismo que hace la cruz).
+
+           Y `opacity-0` mientras no este listo: el panel se pinta invisible y
+           la animacion arranca solo cuando ya esta todo cargado (ver
+           `isReady`). `pointer-events-none` para que, en esa franja, no se
+           pueda tocar nada invisible.
          */
-         <div className="animate-pop-in fixed z-50 flex flex-col overflow-hidden border border-gray-300 bg-white shadow-panel bottom-24 right-0 h-[calc(100dvh-6rem)] w-full rounded-2xl sm:bottom-24 sm:right-6 sm:h-[min(36rem,calc(100dvh-8rem))] sm:w-[min(22rem,calc(100vw-3rem))] sm:rounded-2xl">
+         <div className={`${isReady ? "animate-pop-in" : "opacity-0 pointer-events-none"} fixed z-50 flex flex-col overflow-hidden border border-gray-300 bg-white shadow-panel bottom-24 right-0 h-[calc(100dvh-6rem)] w-full rounded-2xl sm:bottom-24 sm:right-6 sm:h-[min(36rem,calc(100dvh-8rem))] sm:w-[min(22rem,calc(100vw-3rem))] sm:rounded-2xl`}>
            <header className="flex items-center gap-3 bg-[linear-gradient(to_right,#4f46e5,#db2777)] px-4 py-3">
              <img
                src={AVATAR_SRC}
@@ -393,15 +494,18 @@ export const ChatWidget = () => {
                    msg.role === "user" ? "justify-end" : "justify-start"
                  }`}
                >
-                 <div
-                   className={`max-w-[80%] rounded-2xl px-3 py-2 text-[13px] leading-snug whitespace-pre-wrap ${
-                     msg.role === "user"
-                       ? "rounded-br-md bg-[linear-gradient(to_right,#4f46e5,#7c3aed)] text-white shadow-bubble"
-                       : "rounded-bl-md border border-gray-300 bg-white text-gray-800 shadow-bubble"
-                   }`}
-                 >
-                   {msg.content}
-                 </div>
+                 {msg.role === "user" ? (
+                   <div className="max-w-[80%] rounded-2xl rounded-br-md bg-[linear-gradient(to_right,#4f46e5,#7c3aed)] px-3 py-2 text-[13px] leading-snug whitespace-pre-wrap text-white shadow-bubble">
+                     <RichText text={msg.content} variant="user" />
+                   </div>
+                 ) : (
+                   <div className="group relative max-w-[80%]">
+                     <div className="rounded-2xl rounded-bl-md border border-gray-300 bg-white px-3 py-2 text-[13px] leading-snug whitespace-pre-wrap text-gray-800 shadow-bubble select-text">
+                       <RichText text={msg.content} variant="assistant" />
+                     </div>
+                     <CopyButton text={plainText(msg.content)} />
+                   </div>
+                 )}
                </div>
              ))}
              {isLoading && (

@@ -278,6 +278,9 @@ Todo en `euler-frontend/`:
 | Qué querés cambiar | Dónde |
 |---|---|
 | Colores, tamaños, posición, textos del **panel** | `src/components/ChatWidget.jsx` |
+| **Negritas, links y cursivas** en las respuestas | `src/components/RichText.jsx` |
+| El **botón de copiar** la respuesta | `src/components/CopyButton.jsx` |
+| **Saneado del texto** que devuelve el LLM | `src/sanitize.js` |
 | El **botón flotante** | `public/iniciar.js` (está en CSS plano, arriba del archivo) |
 | Animaciones, tipografía, **sombras** | `src/index.css` |
 | El avatar de Euler (robotito) | `public/images/robot.svg` |
@@ -301,6 +304,26 @@ distintos, se avisan con eventos (`euler:chat:open`, `euler:chat:close`,
 > `box-shadow` compute en `none` y el panel se queda sin sombra: blanco sobre una página
 > blanca, invisible. Las sombras van escritas a mano en clases propias
 > (`.shadow-panel`, `.shadow-bubble`, `.shadow-float`) en `src/index.css`.
+
+### Que el bot no pueda inyectar código
+
+La respuesta del LLM es texto sin confiable: se lo trata como si viniera de cualquiera.
+Hay tres capas, de la más fuerte a la más débil:
+
+1. **El render.** Las respuestas se arman con nodos de React (`src/components/RichText.jsx`),
+   nunca con `dangerouslySetInnerHTML`. React escapa el HTML, así que un `<script>` se
+   muestra como texto y no se ejecuta.
+2. **El saneado** (`src/sanitize.js`). Antes de pintar, el texto pasa por `sanitizeText()`:
+   se borran los bloques de código ejecutable (`<script>`, `<iframe>`, `<svg>`, …), los tags
+   HTML conocidos, los tags con manejadores de evento (`onerror=`, `onclick=`, …), los
+   bloques de PHP (`<?php … ?>`) y los comentarios. Los links solo se vuelven `<a>` si el
+   esquema es `http` o `https`: un `javascript:` en un `href` se ejecuta con un click.
+   Es la red de seguridad para el día que alguien meta un `innerHTML` sin querer.
+3. **El prompt** (backend). `SYSTEM_PROMPT` termina con la instrucción de responder en
+   texto plano, sin HTML ni bloques de código (`euler-backend/src/models/agent.py`).
+
+El botón de copiar también copia el texto ya saneado, así que al portapapeles no viaja
+markup.
 
 ### Antes de subir a producción
 
