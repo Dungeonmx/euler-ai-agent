@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = REPO_ROOT / "logs"
 LOG_FILE = LOG_DIR / "euler.log"
 
