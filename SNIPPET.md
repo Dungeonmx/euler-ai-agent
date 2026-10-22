@@ -69,6 +69,27 @@ desincronizan. Ahora el botón tiene un único dueño y el panel tiene otro.
    abierto** (sin parpadeo: no aparece el botón un segundo y después el panel).
 7. Recién en ese momento se piden los 11 MB del avatar 3D.
 
+### El botón es un interruptor: abre y cierra
+
+El botón flotante y el panel son **dos bundles distintos** y no comparten memoria, así que
+se hablan con eventos en `window`:
+
+| Evento | Quién lo manda | Para qué |
+|---|---|---|
+| `euler:chat:open` | snippet → widget | Abrir el panel |
+| `euler:chat:close` | snippet → widget | Cerrar el panel |
+| `euler:chat:state` | widget → snippet | El panel avisó si está abierto o cerrado |
+| `euler:chat:ready` | widget → snippet | El widget terminó de montar |
+
+El botón hace de las dos cosas: si el chat está cerrado lo abre, y si está abierto lo
+cierra, igual que la cruz. Para poder decidir, el widget le avisa su estado con
+`euler:chat:state`; el estado también queda en `window.__EULER_CHAT_OPEN__`, para que el
+snippet lo pueda consultar en el instante del click.
+
+Por el mismo motivo, en mobile el panel **no llega al borde inferior de la pantalla**:
+deja una franja de 6rem para el botón. Si el panel la tapara, el botón quedaría debajo
+del panel y no se podría cerrar el chat tocando el logo.
+
 ---
 
 ## 4. Por qué no rompe la página anfitrión
@@ -320,7 +341,32 @@ Como el Shadow DOM es justamente lo que hace que el widget se pueda incrustar en
 cualquier sitio, no se pueden usar las utilidades de gradiente. Si alguna vez se actualiza
 Tailwind, hay que volver a probar esto.
 
-### 8.2 `process is not defined`
+### 8.2 Las sombras de Tailwind TAMPOCO funcionan dentro de un Shadow DOM
+
+**Síntoma:** el panel no tiene sombra. El chat es blanco y la página anfitriona es
+blanca, así que **el panel se pierde en el fondo**: solo se ve un borde finito de un
+píxel. Tampoco hay ningún error en la consola.
+
+**Causa:** la misma de los degradados. `shadow-sm`, `shadow-2xl` y compañía compilan a
+
+```css
+box-shadow: var(--tw-inset-shadow),var(--tw-inset-ring-shadow),
+            var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow);
+```
+
+y esas variables arrancan con valores iniciales declarados con `@property`, que es un
+at-rule de **alcance documento**: dentro de un shadow tree no se aplican. Quedan
+indefinidas, la declaración entera queda inválida en tiempo de computación, y el
+`box-shadow` termina computando en `none`.
+
+**Solución:** sombras escritas a mano, en clases propias, en `src/index.css`
+(`.shadow-panel`, `.shadow-bubble`, `.shadow-float`). Ahí no hay `@property` en el medio
+y el `box-shadow` se aplica siempre.
+
+Esto no es un detalle cosmético: es lo que separa el widget del fondo en una página
+blanca.
+
+### 8.3 `process is not defined`
 
 **Síntoma:** el widget no monta nada y la consola dice `process is not defined`.
 
@@ -336,7 +382,7 @@ define: command === "build" ? { "process.env.NODE_ENV": '"production"' } : {}
 Además de arreglar el error, esto **reduced el bundle de 1,86 MB a 1,23 MB**, porque
 hasta entonces se estaba empaquetando la build de desarrollo de React.
 
-### 8.3 No usar `useGLTF.preload()`
+### 8.4 No usar `useGLTF.preload()`
 
 `Avatar.jsx` tenía `useGLTF.preload()` sobre los `.glb`, que precalienta **11 MB en cada
 carga de página**, aunque el visitante nunca abra el chat.

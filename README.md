@@ -278,8 +278,11 @@ Todo en `euler-frontend/`:
 | Qué querés cambiar | Dónde |
 |---|---|
 | Colores, tamaños, posición, textos del **panel** | `src/components/ChatWidget.jsx` |
+| **Negritas, links y cursivas** en las respuestas | `src/components/RichText.jsx` |
+| El **botón de copiar** la respuesta | `src/components/CopyButton.jsx` |
+| **Saneado del texto** que devuelve el LLM | `src/sanitize.js` |
 | El **botón flotante** | `public/iniciar.js` (está en CSS plano, arriba del archivo) |
-| Animaciones, tipografía | `src/index.css` |
+| Animaciones, tipografía, **sombras** | `src/index.css` |
 | El avatar de Euler (robotito) | `public/images/robot.svg` |
 
 El avatar es **un solo archivo SVG** compartido por el botón flotante y por el header del
@@ -289,7 +292,38 @@ página de afuera, que es justo el aislamiento que se quiere.
 
 El botón NO se dibuja en React, a propósito: si se dibujara en los dos lados (en el snippet y en el widget), cada cambio visual habría que aplicarlo en dos lugares y tarde o temprano se desincronizan. Por eso el snippet dibuja el botón y React solo el panel.
 
-> **Ojo con los degradados.** Van escritos como `bg-[linear-gradient(to_right,#6366f1,#ec4899)]` y no como `bg-linear-to-r from-indigo-500 to-pink-500`. Las utilidades de gradiente de Tailwind v4 dependen de `@property`, que **no funciona dentro de un Shadow DOM**: el `--tw-gradient-stops` queda inválido y el degradado desaparece sin dar ningún error en la consola. Está documentado en `ChatWidget.jsx`.
+El botón flotante es un **interruptor**: si el chat está cerrado lo abre, y si está
+abierto lo cierra, igual que la cruz. Como el botón y el panel son dos bundles
+distintos, se avisan con eventos (`euler:chat:open`, `euler:chat:close`,
+`euler:chat:state`).
+
+> **Ojo con los degradados.** Van escritos como `bg-[linear-gradient(to_right,#4f46e5,#db2777)]` y no como `bg-linear-to-r from-indigo-500 to-pink-500`. Las utilidades de gradiente de Tailwind v4 dependen de `@property`, que **no funciona dentro de un Shadow DOM**: el `--tw-gradient-stops` queda inválido y el degradado desaparece sin dar ningún error en la consola. Está documentado en `ChatWidget.jsx`.
+
+> **Lo mismo pasa con las sombras.** `shadow-sm` y `shadow-2xl` también se apoyan en
+> `@property` (`--tw-shadow`, `--tw-ring-shadow`, …), así que dentro del Shadow DOM el
+> `box-shadow` compute en `none` y el panel se queda sin sombra: blanco sobre una página
+> blanca, invisible. Las sombras van escritas a mano en clases propias
+> (`.shadow-panel`, `.shadow-bubble`, `.shadow-float`) en `src/index.css`.
+
+### Que el bot no pueda inyectar código
+
+La respuesta del LLM es texto sin confiable: se lo trata como si viniera de cualquiera.
+Hay tres capas, de la más fuerte a la más débil:
+
+1. **El render.** Las respuestas se arman con nodos de React (`src/components/RichText.jsx`),
+   nunca con `dangerouslySetInnerHTML`. React escapa el HTML, así que un `<script>` se
+   muestra como texto y no se ejecuta.
+2. **El saneado** (`src/sanitize.js`). Antes de pintar, el texto pasa por `sanitizeText()`:
+   se borran los bloques de código ejecutable (`<script>`, `<iframe>`, `<svg>`, …), los tags
+   HTML conocidos, los tags con manejadores de evento (`onerror=`, `onclick=`, …), los
+   bloques de PHP (`<?php … ?>`) y los comentarios. Los links solo se vuelven `<a>` si el
+   esquema es `http` o `https`: un `javascript:` en un `href` se ejecuta con un click.
+   Es la red de seguridad para el día que alguien meta un `innerHTML` sin querer.
+3. **El prompt** (backend). `SYSTEM_PROMPT` termina con la instrucción de responder en
+   texto plano, sin HTML ni bloques de código (`euler-backend/src/models/agent.py`).
+
+El botón de copiar también copia el texto ya saneado, así que al portapapeles no viaja
+markup.
 
 ### Antes de subir a producción
 

@@ -25,6 +25,42 @@
   line-height: 1.5;
 }
 
+/*
+  Sombras.
+
+  Las utilidades de sombra de Tailwind v4 (`shadow-sm`, `shadow-2xl`) NO
+  funcionan dentro de un Shadow DOM, por la misma razon que los degradados:
+  compilan a
+
+      box-shadow: var(--tw-inset-shadow),var(--tw-inset-ring-shadow),
+                  var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow)
+
+  y esas variables arrancan con valores iniciales declarados con `@property`,
+  que es un at-rule de alcance documento y no se aplica dentro de un shadow
+  tree. Quedan indefinidas, la declaracion entera queda invalida en tiempo de
+  computacion y el `box-shadow` termina computando en `none`: la sombra
+  desaparece sin dar ningun error en la consola. Verificado en Chromium.
+
+  Y no es un detalle menor: el panel es blanco y muchos sitios tambien son
+  blancos, asi que sin sombra el chat se pierde contra el fondo. Las sombras
+  van escritas a mano.
+*/
+.shadow-panel {
+  box-shadow:
+    0 20px 45px -15px rgba(15, 23, 42, 0.32),
+    0 6px 14px -6px rgba(15, 23, 42, 0.18);
+}
+
+.shadow-bubble {
+  box-shadow:
+    0 1px 2px 0 rgba(15, 23, 42, 0.07),
+    0 1px 3px -1px rgba(15, 23, 42, 0.12);
+}
+
+.shadow-float {
+  box-shadow: 0 8px 18px -6px rgba(15, 23, 42, 0.32);
+}
+
 .animate-slide-in-right {
   animation: slideInRight 0.35s ease-out both;
 }
