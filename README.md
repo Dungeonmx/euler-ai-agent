@@ -405,6 +405,86 @@ Descarga el audio generado.
 curl -o audio.wav http://localhost:8000/audio/assistant_20260817_142010_abc12345.wav
 ```
 
+### CRUD /datos-entrenamiento
+
+Documentos que se usan como datos de entrenamiento. Requiere que la tabla exista:
+
+```bash
+cd euler-backend && .venv/bin/alembic upgrade head
+```
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `POST` | `/datos-entrenamiento` | Crea un documento |
+| `GET` | `/datos-entrenamiento?page=1&per_page=20` | Lista los documentos (paginado) |
+| `GET` | `/datos-entrenamiento/{id}` | Obtiene un documento |
+| `PUT` | `/datos-entrenamiento/{id}` | Reemplaza título y contenido |
+| `DELETE` | `/datos-entrenamiento/{id}` | Elimina un documento |
+
+**Cuerpo de la solicitud (`POST` y `PUT`):**
+
+```json
+{
+  "titulo": "Reglamento académico",
+  "contenido": "Texto completo del documento..."
+}
+```
+
+**Respuesta de un documento:**
+
+```json
+{
+  "id": 1,
+  "titulo": "Reglamento académico",
+  "contenido": "Texto completo del documento...",
+  "created_at": "2026-10-29T14:20:10.123456Z"
+}
+```
+
+**Respuesta del listado:**
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "titulo": "Reglamento académico",
+      "contenido": "Texto completo del documento...",
+      "created_at": "2026-10-29T14:20:10.123456Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "per_page": 20,
+  "pages": 1
+}
+```
+
+**Ejemplos con curl:**
+
+```bash
+# Crear
+curl -X POST http://localhost:8000/datos-entrenamiento \
+  -H "Content-Type: application/json" \
+  -d '{"titulo":"Reglamento académico","contenido":"Texto completo del documento..."}'
+
+# Listar (paginado)
+curl -s "http://localhost:8000/datos-entrenamiento?page=1&per_page=20" | python3 -m json.tool
+
+# Obtener uno
+curl -s http://localhost:8000/datos-entrenamiento/1 | python3 -m json.tool
+
+# Actualizar (reemplazo total: se envían ambos campos)
+curl -X PUT http://localhost:8000/datos-entrenamiento/1 \
+  -H "Content-Type: application/json" \
+  -d '{"titulo":"Reglamento 2026","contenido":"Texto actualizado..."}'
+
+# Eliminar
+curl -X DELETE http://localhost:8000/datos-entrenamiento/1
+```
+
+Validaciones: `titulo` entre 1 y 500 caracteres, `contenido` no vacío (se recorta con `strip`), `page >= 1` y `per_page` entre 1 y 100. Un `id` inexistente devuelve `404`; un cuerpo inválido, `422`. El esquema interactivo está en `http://localhost:8000/docs`.
+
 ---
 
 ## Ejemplos de consultas

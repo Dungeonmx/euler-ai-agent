@@ -23,6 +23,7 @@ from models.prompt import build_llm_messages
 from models.sse import sse_event
 from models.tts import generate_audio_filename, synthesize_text
 from repositories.conversation import ConversationRepository
+from router.training_data import router as training_data_router
 from schemas.conversation import ChatResponse, ConversationList, ConversationRead
 from services.chat import (
     ConversationNotFound,
@@ -87,6 +88,8 @@ app = FastAPI(title="Euler AI Agent API", version="1.0.0", lifespan=lifespan)
 
 app.mount("/euler/js", StaticFiles(directory=str(FRONTEND_DIST_DIR)), name="euler_js")
 
+app.include_router(training_data_router)
+
 agent = Agent()
 
 CONVERSATION_TTL = int(os.getenv("CONVERSATION_TTL_SECONDS", "3600"))
@@ -110,7 +113,7 @@ app.add_middleware(
     # Ademas, allow_credentials=True esta prohibido combinarlo con
     # allow_origins=["*"].
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
