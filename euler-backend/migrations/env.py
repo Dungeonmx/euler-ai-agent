@@ -29,6 +29,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 # add your model's MetaData object here
 # for 'autogenerate' support
 from storage.postgresql.base import Base
+import models  # noqa: F401  (registra los modelos en Base.metadata)
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

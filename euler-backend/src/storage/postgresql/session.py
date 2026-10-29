@@ -1,7 +1,8 @@
 import os
+from collections.abc import AsyncGenerator
 
 from dotenv import load_dotenv
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 load_dotenv()
 
@@ -21,3 +22,12 @@ engine = create_async_engine(
 )
 
 async_session = async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """Dependencia de FastAPI: abre una sesión y la cierra siempre."""
+    session = async_session()
+    try:
+        yield session
+    finally:
+        await session.close()
