@@ -485,6 +485,72 @@ curl -X DELETE http://localhost:8000/datos-entrenamiento/1
 
 Validaciones: `titulo` entre 1 y 500 caracteres, `contenido` no vacío (se recorta con `strip`), `page >= 1` y `per_page` entre 1 y 100. Un `id` inexistente devuelve `404`; un cuerpo inválido, `422`. El esquema interactivo está en `http://localhost:8000/docs`.
 
+### GET /documentos-conversor/formatos
+
+Lista los formatos que acepta el conversor de documentos.
+
+```bash
+curl -s http://localhost:8000/documentos-conversor/formatos | python3 -m json.tool
+```
+
+```json
+{
+  "formats": [
+    {
+      "extension": ".pdf",
+      "mime_type": "application/pdf",
+      "description": "Documento PDF"
+    },
+    {
+      "extension": ".docx",
+      "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "description": "Documento Word"
+    },
+    {
+      "extension": ".pptx",
+      "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "description": "Presentacion PowerPoint"
+    },
+    {
+      "extension": ".xlsx",
+      "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "description": "Planilla Excel"
+    }
+  ]
+}
+```
+
+### POST /documentos-conversor/convertir
+
+Recibe un documento (`multipart/form-data`, campo `file`) y devuelve su contenido como Markdown: texto plano con títulos, listas y tablas mínimas, listo para alimentar al LLM. Lo convierte [MarkItDown](https://github.com/microsoft/markitdown).
+
+```bash
+curl -s -X POST http://localhost:8000/documentos-conversor/convertir \
+  -F "file=@reglamento.pdf" | python3 -m json.tool
+```
+
+**Respuesta:**
+
+```json
+{
+  "filename": "reglamento.pdf",
+  "extension": ".pdf",
+  "markdown": "# Reglamento académico\n\n...",
+  "characters": 1234
+}
+```
+
+**Errores:**
+
+| Código | Motivo |
+|--------|--------|
+| `400` | El archivo está vacío |
+| `413` | Supera el límite de `DOCUMENT_MAX_MB` (20 MB por defecto) |
+| `415` | Extensión no soportada |
+| `422` | El archivo no se pudo convertir (dañado o no corresponde al formato) |
+
+El endpoint no guarda nada en la base: solo convierte y devuelve el texto. La conversión corre en un hilo aparte para no bloquear el event loop. El límite de tamaño se configura con `DOCUMENT_MAX_MB` en el `.env`.
+
 ---
 
 ## Ejemplos de consultas
